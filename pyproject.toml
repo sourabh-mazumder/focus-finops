@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "focus-finops"
+version = "0.1.0"
+description = "Sample AWS FinOps project: loads FOCUS v1.4 formatted cost & usage data into PostgreSQL and generates cost reports."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "pandas>=2.0",
+    "click>=8.0",
+    "python-dotenv>=1.0",
+    "tabulate>=0.9",
+]
+
+[project.optional-dependencies]
+# Not required by this project (it talks to Postgres via the `psql` CLI to
+# keep the dependency footprint small - see README "Why psql instead of a
+# DB driver"), but listed here in case you'd rather swap in a native driver.
+driver = ["psycopg2-binary>=2.9", "SQLAlchemy>=2.0"]
+
+[project.scripts]
+focus-finops = "focus_finops.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+packages = ["focus_finops", "focus_finops.reports"]
