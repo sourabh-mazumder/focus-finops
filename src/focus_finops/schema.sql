@@ -137,3 +137,5 @@ CREATE INDEX IF NOT EXISTS idx_focus_service_name          ON focus_cost_and_usa
 CREATE INDEX IF NOT EXISTS idx_focus_billing_account_id    ON focus_cost_and_usage (billing_account_id);
 CREATE INDEX IF NOT EXISTS idx_focus_region_id              ON focus_cost_and_usage (region_id);
 CREATE INDEX IF NOT EXISTS idx_focus_resource_id            ON focus_cost_and_usage (resource_id);
+CREATE INDEX IF NOT EXISTS idx_focus_service_provider_name  ON focus_cost_and_usage (service_provider_name);
+CREATE INDEX IF NOT EXISTS idx_focus_tags                   ON focus_cost_and_usage USING GIN (tags);

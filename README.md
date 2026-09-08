@@ -1,7 +1,7 @@
 # focus-finops
 
-A small sample project for AWS Cloud FinOps: it loads AWS cost & usage data
-in **FOCUS v1.4** format ([FinOps Open Cost and Usage
+A small sample project for multi-cloud FinOps: it loads AWS + Azure + GCP
+cost & usage data in **FOCUS v1.4** format ([FinOps Open Cost and Usage
 Specification](https://focus.finops.org/)) into PostgreSQL and generates
 cost reports (CLI summary, CSV exports, and an interactive HTML dashboard)
 from it.
@@ -14,13 +14,22 @@ from it.
   FOCUS column IDs (`BilledCost`, `ServiceCategory`, ...) to database
   columns; used by both the sample generator and the ingest script.
 - `src/focus_finops/generate_sample_data.py` -- generates a realistic,
-  synthetic multi-month AWS cost dataset (EC2, S3, RDS, Lambda, DynamoDB,
-  CloudFront, data transfer, Support, tax, commitment discounts, credits)
-  in FOCUS v1.4 CSV format.
+  synthetic multi-month, multi-cloud cost dataset: AWS (EC2, S3, RDS,
+  Lambda, DynamoDB, CloudFront), Azure (Virtual Machines, Blob Storage,
+  Azure SQL, Functions, Cosmos DB, CDN) and GCP (Compute Engine, Cloud
+  Storage, Cloud SQL, Cloud Functions, BigQuery, Cloud CDN) -- plus data
+  transfer, per-provider support/tax charges, commitment discounts, and
+  one-off credits, in FOCUS v1.4 CSV format. Every linked account
+  (AWS sub-account / Azure subscription / GCP project) is tagged with
+  `Environment`, `Team`, `CostCenter`, `Application`, and `Owner` -- FOCUS
+  has no dedicated Application/Owner columns, so these are carried in the
+  `Tags` JSON column like the rest of the tag set. Several applications
+  deliberately span more than one cloud provider so cross-cloud,
+  per-application/per-owner views are meaningful.
 - `src/focus_finops/ingest.py` -- loads any FOCUS-format CSV (the
-  synthetic sample, or a real AWS export) into Postgres.
-- `src/focus_finops/reports/` -- CLI summary, CSV exports, and the HTML
-  dashboard.
+  synthetic sample, or a real cloud provider export) into Postgres.
+- `src/focus_finops/reports/` -- CLI summary, CSV exports, and the
+  interactive HTML dashboard.
 - `src/focus_finops/cli.py` -- the `focus-finops` command-line tool tying
   it all together.
 
@@ -84,10 +93,27 @@ If `.ps1` scripts are blocked by your execution policy, run them via
 instead of changing the system-wide policy. From step 3 onward, the
 Quickstart commands below work as-is on Windows too.
 
-Open `reports_output/dashboard.html` in a browser -- it's a single,
-self-contained file (no CDN, no build step, works offline) with cost KPIs,
-cost-by-service/account/region charts, a monthly trend chart, a Savings
-Plan/Reserved Instance coverage comparison, and a top-resources table.
+Open `reports_output/dashboard.html` in a browser. It's a single HTML
+file, but **not** offline-capable: it loads [Chart.js](https://www.chartjs.org/)
+from a CDN and needs network access on first load. In exchange, it's a
+genuinely interactive dashboard rather than a static report -- a
+pre-aggregated cost cube (provider / account / application / owner /
+service / region / month / resource) is embedded in the page as JSON, and
+everything below re-renders client-side as you use it:
+
+- **Filters** for Provider, Account, Application, and Owner (checkbox
+  dropdowns, all selected by default) narrow every chart, KPI tile, and
+  the top-resources table at once.
+- A **"Group by"** selector picks which dimension the main breakdown bar
+  chart and the monthly trend chart split by (Provider, Account,
+  Application, Owner, Service Category, Service, or Region) -- so e.g.
+  you can filter to Owner=Marcus Chen and group by Provider to see the
+  "data-platform" application's AWS/Azure/GCP cost split.
+- A fixed cost-by-provider donut always shows the multi-cloud split
+  regardless of the "group by" choice.
+
+No fixed drill-down hierarchy -- the four filters are independent and
+combine freely with the "group by" dimension.
 
 ## Loading your own FOCUS export
 

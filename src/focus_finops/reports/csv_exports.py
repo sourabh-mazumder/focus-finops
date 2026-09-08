@@ -18,6 +18,9 @@ def run(out_dir: Path) -> list[Path]:
         "top_resources.csv": queries.top_resources(25),
         "savings_by_commitment_type.csv": queries.savings_by_commitment_type(),
         "cost_by_charge_category.csv": queries.cost_by_charge_category(),
+        "cost_by_provider.csv": queries.cost_by_provider(),
+        "cost_by_application.csv": queries.cost_by_application(),
+        "cost_by_owner.csv": queries.cost_by_owner(),
     }
     written = []
     for filename, df in exports.items():

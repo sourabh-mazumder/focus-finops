@@ -21,6 +21,7 @@ def run() -> None:
     print("=" * 60)
     print(f"Period covered:   {totals['period_start']}  ->  {totals['period_end']}")
     print(f"Line items:       {int(totals['line_items']):,}")
+    print(f"Providers:        {int(totals['providers'])}")
     print(f"Sub-accounts:     {int(totals['sub_accounts'])}")
     print(f"Services:         {int(totals['services'])}")
     print()
@@ -32,6 +33,12 @@ def run() -> None:
     print(f"Savings vs List:      {_money(savings)}  ({pct:.1f}%)")
     print()
 
+    print("-- Cost by provider " + "-" * 38)
+    df = queries.cost_by_provider()
+    df["billed_cost"] = df["billed_cost"].map(_money)
+    print(tabulate(df, headers="keys", tablefmt="simple", showindex=False))
+    print()
+
     print("-- Cost by service category " + "-" * 30)
     df = queries.cost_by_service_category()
     df["billed_cost"] = df["billed_cost"].map(_money)
@@ -40,6 +47,18 @@ def run() -> None:
 
     print("-- Cost by account " + "-" * 39)
     df = queries.cost_by_account()
+    df["billed_cost"] = df["billed_cost"].map(_money)
+    print(tabulate(df, headers="keys", tablefmt="simple", showindex=False))
+    print()
+
+    print("-- Cost by application " + "-" * 35)
+    df = queries.cost_by_application()
+    df["billed_cost"] = df["billed_cost"].map(_money)
+    print(tabulate(df, headers="keys", tablefmt="simple", showindex=False))
+    print()
+
+    print("-- Cost by owner " + "-" * 41)
+    df = queries.cost_by_owner()
     df["billed_cost"] = df["billed_cost"].map(_money)
     print(tabulate(df, headers="keys", tablefmt="simple", showindex=False))
     print()

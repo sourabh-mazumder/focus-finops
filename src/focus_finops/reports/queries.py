@@ -18,6 +18,7 @@ def overall_totals() -> pd.Series:
             SUM(list_cost)                         AS list_cost,
             MIN(charge_period_start)               AS period_start,
             MAX(charge_period_start)               AS period_end,
+            COUNT(DISTINCT service_provider_name)  AS providers,
             COUNT(DISTINCT sub_account_id)         AS sub_accounts,
             COUNT(DISTINCT service_name)           AS services,
             COUNT(*)                               AS line_items
@@ -26,6 +27,62 @@ def overall_totals() -> pd.Series:
     if df.empty:
         return pd.Series(dtype=object)
     return df.iloc[0]
+
+
+def cost_by_provider() -> pd.DataFrame:
+    return db.query_df(f"""
+        SELECT service_provider_name AS provider,
+               SUM(billed_cost) AS billed_cost
+        FROM {TABLE}
+        GROUP BY 1
+        ORDER BY billed_cost DESC;
+    """)
+
+
+def cost_by_application() -> pd.DataFrame:
+    return db.query_df(f"""
+        SELECT COALESCE(tags->>'Application', '(untagged)') AS application,
+               SUM(billed_cost) AS billed_cost
+        FROM {TABLE}
+        GROUP BY 1
+        ORDER BY billed_cost DESC;
+    """)
+
+
+def cost_by_owner() -> pd.DataFrame:
+    return db.query_df(f"""
+        SELECT COALESCE(tags->>'Owner', '(untagged)') AS owner,
+               SUM(billed_cost) AS billed_cost
+        FROM {TABLE}
+        GROUP BY 1
+        ORDER BY billed_cost DESC;
+    """)
+
+
+def dashboard_cube() -> pd.DataFrame:
+    """A pre-aggregated cost cube across every dimension the HTML dashboard
+    lets you filter/group by. Small enough (one row per distinct
+    combination actually present in the data, not per raw line item) to
+    embed as JSON in the dashboard page for client-side filtering.
+    """
+    return db.query_df(f"""
+        SELECT
+            service_provider_name                                          AS provider,
+            COALESCE(sub_account_name, sub_account_id, billing_account_name) AS account,
+            COALESCE(tags->>'Application', '(untagged)')                   AS application,
+            COALESCE(tags->>'Owner', '(untagged)')                         AS owner,
+            service_category,
+            service_name,
+            COALESCE(region_id, '(none)')                                  AS region,
+            to_char(date_trunc('month', charge_period_start), 'YYYY-MM')   AS month,
+            COALESCE(NULLIF(resource_name, ''), '(none)')                  AS resource_name,
+            SUM(billed_cost)     AS billed_cost,
+            SUM(effective_cost)  AS effective_cost,
+            SUM(list_cost)       AS list_cost,
+            COUNT(*)             AS line_items
+        FROM {TABLE}
+        GROUP BY 1,2,3,4,5,6,7,8,9;
+    """)
 
 
 def cost_by_service() -> pd.DataFrame:
