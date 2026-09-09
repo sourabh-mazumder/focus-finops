@@ -30,6 +30,11 @@ from it.
   synthetic sample, or a real cloud provider export) into Postgres.
 - `src/focus_finops/reports/` -- CLI summary, CSV exports, and the
   interactive HTML dashboard.
+- `src/focus_finops/reports/ml_insights.py` -- scikit-learn-based cost
+  optimization signals: per-resource anomaly detection (IsolationForest),
+  next-month spend forecasting / overrun risk (linear trend), and
+  commitment (Savings Plan/RI/CUD) candidate recommendations (KMeans). See
+  "Machine learning-based cost optimization" below.
 - `src/focus_finops/cli.py` -- the `focus-finops` command-line tool tying
   it all together.
 
@@ -37,8 +42,8 @@ from it.
 
 - Python 3.11+
 - A PostgreSQL server, with the **`psql` client on your PATH**
-- Python packages: `pandas`, `click`, `python-dotenv`, `tabulate` (listed
-  in `pyproject.toml`)
+- Python packages: `pandas`, `click`, `python-dotenv`, `tabulate`, `numpy`,
+  `scikit-learn` (listed in `pyproject.toml`)
 
 ### Why `psql` instead of psycopg2 / SQLAlchemy?
 
@@ -115,6 +120,36 @@ everything below re-renders client-side as you use it:
 No fixed drill-down hierarchy -- the four filters are independent and
 combine freely with the "group by" dimension.
 
+## Machine learning-based cost optimization
+
+`reports/ml_insights.py` adds three scikit-learn models on top of the FOCUS
+data, surfaced in the CLI summary, the CSV exports, and a dedicated
+dashboard section (all filterable by the same Provider/Account/Application/
+Owner filters as the rest of the page):
+
+- **Cost anomaly detection** (`IsolationForest`) -- fit independently per
+  resource on its own daily cost history, so a $500/day database and a
+  $2/day Lambda function are judged against their own baseline rather than
+  each other. Flags days that look like runaway spend spikes.
+- **Spend forecasting / overrun risk** (`LinearRegression`) -- projects next
+  month's cost per provider/account/application/owner/service-category
+  combination from a straight-line fit over that combination's own monthly
+  history, and flags combinations whose forecast exceeds the last actual
+  month by 15%+ as an overrun risk. A linear trend is a deliberately simple
+  choice given the short history typical of this project's sample data (a
+  handful of months) -- not a claim that cloud spend trends are linear in
+  general.
+- **Commitment (Savings Plan/RI/CUD) candidate recommendations** (`KMeans`)
+  -- clusters currently *uncommitted* Compute/Database resources on mean
+  daily cost and cost volatility, then flags the cluster with high, steady
+  usage as good commitment candidates.
+
+These are decision-support signals for a FinOps review, not automated
+actions -- see the caveats printed alongside each section (e.g. the
+forecast's short-history disclaimer, and that "commitment coverage"
+elsewhere in this project means usage billed at the committed rate, not
+used-vs-purchased utilization).
+
 ## Loading your own FOCUS export
 
 ```bash
@@ -161,6 +196,11 @@ python -m unittest discover -s tests -v
 - **More report cuts:** add a query to `reports/queries.py` and a chart/
   table to `reports/html_dashboard.py` or a new CSV in
   `reports/csv_exports.py`.
+- **More ML signals:** add a function to `reports/ml_insights.py` returning
+  a DataFrame with `provider`/`account`/`application`/`owner` columns (so it
+  can reuse the existing dashboard filter wiring), then wire it into
+  `cli_summary.py`, `csv_exports.py`, and `html_dashboard.py` the same way
+  as the three existing ones.
 - **A bigger/different sample dataset:** edit the resource catalog in
   `generate_sample_data.py` (services, accounts, regions, growth/anomaly
   parameters) and re-run `generate-sample`.
