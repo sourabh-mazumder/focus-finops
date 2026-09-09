@@ -18,6 +18,7 @@ dependencies = [
     "prophet>=1.1",
     "psycopg2-binary>=2.9",
     "SQLAlchemy>=2.0",
+    "Flask>=3.0",
 ]
 
 [project.scripts]

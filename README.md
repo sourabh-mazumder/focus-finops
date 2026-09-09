@@ -46,6 +46,9 @@ from it.
   OpenTelemetry resource-utilization telemetry, correlated against real
   FOCUS cost, in a separate table alongside `focus_cost_and_usage`. See
   "Simulated telemetry & cost/utilization correlation" below.
+- `src/focus_finops/api.py` -- a Flask REST API exposing paginated,
+  filtered access to cost data and analytics, run via `focus-finops serve`.
+  See "REST API" below.
 - `src/focus_finops/cli.py` -- the `focus-finops` command-line tool tying
   it all together.
 
@@ -58,8 +61,8 @@ from it.
   `focus_app` role/database as the Postgres superuser) -- the application
   itself never shells out to `psql`.
 - Python packages: `pandas`, `click`, `python-dotenv`, `tabulate`, `numpy`,
-  `scikit-learn`, `prophet`, `psycopg2-binary`, `SQLAlchemy` (listed in
-  `pyproject.toml`)
+  `scikit-learn`, `prophet`, `psycopg2-binary`, `SQLAlchemy`, `Flask`
+  (listed in `pyproject.toml`)
 
 ### Database access: a pooled SQLAlchemy engine
 
@@ -98,6 +101,9 @@ python -m focus_finops.cli ingest data/samples/focus_sample_*.csv
 python -m focus_finops.cli report summary               # terminal summary
 python -m focus_finops.cli report export                # CSVs -> reports_output/
 python -m focus_finops.cli report dashboard              # HTML -> reports_output/dashboard.html
+
+# 6. In a separate terminal, before opening the dashboard -- see "REST API" below
+python -m focus_finops.cli serve
 ```
 
 ### Windows
@@ -119,13 +125,14 @@ If `.ps1` scripts are blocked by your execution policy, run them via
 instead of changing the system-wide policy. From step 3 onward, the
 Quickstart commands below work as-is on Windows too.
 
-Open `reports_output/dashboard.html` in a browser. It's a single HTML
-file, but **not** offline-capable: it loads [Chart.js](https://www.chartjs.org/)
-from a CDN and needs network access on first load. In exchange, it's a
-genuinely interactive dashboard rather than a static report -- a
-pre-aggregated cost cube (provider / account / application / owner /
-service / region / month / resource) is embedded in the page as JSON, and
-everything below re-renders client-side as you use it:
+With `focus-finops serve` running (see "REST API" below), open
+`reports_output/dashboard.html` in a browser. It's a single HTML file, but
+**not** offline-capable, in two ways: it loads [Chart.js](https://www.chartjs.org/)
+from a CDN on first load, and -- unlike a truly static report -- it fetches
+its cost cube (provider / account / application / owner / service / region
+/ month / resource) and every derived analytics dataset from that running
+API on every filter change, rather than embedding them. Everything below
+re-renders as you use it:
 
 - **Filters** for Provider, Account, Application, and Owner (checkbox
   dropdowns, all selected by default) narrow every chart, KPI tile, and
@@ -260,13 +267,18 @@ Dashboard") with a signals-at-a-glance row, a per-resource picker showing
 stacked daily-cost and daily-utilization charts, and the full
 correlation/classification table -- independent of the Cost Dashboard tab's
 Provider/Account/Application/Owner filters (it has its own resource
-picker instead).
+picker instead). Unlike the Cost Dashboard tab, this one fetches its data
+from the REST API (see "REST API" below) rather than embedding it, so
+**the API server needs to be running** (`focus-finops serve`) for this tab
+to show anything -- if it isn't, the tab says so and tells you the command
+to run, rather than silently showing nothing.
 
 **Usage:**
 ```bash
 focus-finops setup-otel-db     # create otel_resource_metrics (once)
 focus-finops generate-otel     # writes data/samples/otel_metrics_*.csv
 focus-finops ingest-otel data/samples/otel_metrics_<start>_<end>.csv
+focus-finops serve             # in a separate terminal, for the dashboard's Resource Telemetry tab
 ```
 Then regenerate reports as usual (`report summary` / `report export` /
 `report dashboard`) -- all three degrade gracefully (empty section, not an
@@ -277,6 +289,85 @@ legitimate, valuable FinOps technique in practice (what AWS Compute
 Optimizer or Azure Advisor do against real CloudWatch/Monitor data) -- not
 a finding about real infrastructure, since the "waste" and "unexplained
 spikes" here are exactly what the generator was told to inject.
+
+## REST API
+
+`src/focus_finops/api.py` is a small Flask app exposing paginated, filtered
+access to the same data the reports use, so a client fetches only the
+page/filter it actually needs instead of receiving a whole dataset at
+once. It exists because the dashboard originally embedded every dataset as
+JSON directly in the generated HTML -- the per-resource OTel telemetry
+alone was ~3MB embedded wholesale (most of it irrelevant to any single
+view), and the cost cube plus its five derived analytics datasets added
+several hundred KB more, none of it responsive to anything but that one
+generation snapshot.
+
+**Both dashboard tabs now fetch from this API rather than embedding data**:
+- **Resource Telemetry** tab: fetches the correlation summary once per tab
+  load, and each resource's daily history only when that resource is
+  actually selected.
+- **Cost Dashboard** tab: every dataset that responds to the
+  Provider/Account/Application/Owner filters (the cube, commitment
+  coverage, z-score/ML anomalies, forecast, recommendations) is re-fetched
+  from the API on every filter checkbox change -- toggling a provider
+  triggers six parallel requests, and the KPIs/charts/tables update from
+  the response. Changing "Group by" does **not** re-fetch -- it's a pure
+  client-side re-aggregation of the rows already on hand. An empty filter
+  group (e.g. clicking "Clear" under Provider) is handled client-side as
+  "show nothing," rather than sent to the API as an empty filter list
+  (which the API would otherwise read as "no filter applied," i.e. show
+  everything -- the opposite of what an empty checkbox group means here).
+
+Only the 3-month cost prediction chart stays embedded as JSON at
+generation time -- it's portfolio-wide and doesn't respond to any of these
+filters, so fetching it per interaction would gain nothing.
+
+**Both tabs now require the API server to be running** to show anything
+(`focus-finops serve`) -- if it isn't reachable, each tab shows a clear
+banner with the command to run, rather than a silent blank page, and the
+Cost Dashboard tab recovers on its own (no page reload) once the server is
+started and a filter is changed again.
+
+**Run it:**
+```bash
+focus-finops serve                       # http://127.0.0.1:8000
+focus-finops serve --host 0.0.0.0 --port 9000   # or wherever
+```
+`report dashboard` embeds whatever `--api-base` you give it (default
+`http://127.0.0.1:8000`) as the URL the generated HTML fetches from --
+point it at wherever `serve` is actually running.
+
+**Endpoints** -- every one accepts `limit` (default 200, max 2000) and
+`offset` for pagination, and returns `{total, limit, offset, items}`:
+
+| Endpoint | Filters | Notes |
+|---|---|---|
+| `GET /health` | -- | `{"status": "ok"}`, or 503 if Postgres is unreachable |
+| `GET /api/cost/cube` | `provider`, `account`, `application`, `owner` (repeatable) | The pre-aggregated cube the Cost Dashboard tab's charts/KPIs re-fetch on every filter change |
+| `GET /api/cost/commitment-utilization` | same as cube | |
+| `GET /api/ml/zscore-anomalies` | same as cube | |
+| `GET /api/ml/anomalies` | same as cube | |
+| `GET /api/ml/forecast` | same as cube | |
+| `GET /api/ml/recommendations` | same as cube | |
+| `GET /api/prediction/daily` | -- | Portfolio-wide, no dimension filters |
+| `GET /api/prediction/monthly` | -- | |
+| `GET /api/otel/resources` | `service_category` (repeatable) | Distinct resources, for populating a picker |
+| `GET /api/otel/daily` | **`resource_id` (required)** | One resource's full daily cost + utilization series -- filtered at the SQL level (a bound parameter, not a filter applied after fetching everything), so asking for one resource genuinely only queries and transfers that resource's rows |
+| `GET /api/otel/correlation` | `service_category` (repeatable) | |
+
+For every endpoint except `/api/otel/daily`, the underlying query function
+(`queries.py`/`ml_insights.py`) still computes its full result server-side
+and the API filters/paginates the pandas DataFrame before responding --
+the client never receives more than it asked for, but the SQL query itself
+isn't yet parameterized per-filter the way `/api/otel/daily` is. Pushing
+every filter down into SQL for the rest of the endpoints is a reasonable
+next step, not done here.
+
+A value from an HTTP query parameter is a genuine trust boundary, unlike
+the rest of this codebase's internally-generated SQL -- `/api/otel/daily`'s
+`resource_id` is passed through `db.query_df`'s bound-parameter support
+(`params={"resource_id": ...}`, resolved as `:resource_id` in the SQL),
+never pasted into the query text.
 
 ## Loading your own FOCUS export
 

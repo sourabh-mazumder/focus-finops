@@ -1,15 +1,31 @@
-"""Builds a single-file, interactive HTML cost dashboard from the data
-currently loaded in Postgres.
+"""Builds a single-file, interactive HTML cost dashboard.
 
-Unlike the CSV/summary reports, this is fully dynamic: a pre-aggregated
-cost cube (provider / account / application / owner / service / region /
-month / resource) is queried once and embedded as JSON in the page, then
-filtering, "group by" breakdowns, and chart drawing all happen client-side
-in the browser via Chart.js (loaded from a CDN). This means the page is
-NOT usable fully offline (it needs network access on first load to fetch
-Chart.js) -- a deliberate trade-off for real interactivity vs. the
-previous static-SVG version, which had no server round-trip requirement
-but couldn't be filtered/drilled into after generation.
+Two tabs, two different data-loading strategies:
+
+  - **Cost Dashboard** tab: every dataset that responds to the
+    Provider/Account/Application/Owner filters (the cost cube, commitment
+    coverage, z-score/ML anomalies, forecast, recommendations) is fetched
+    from the REST API (api.py, run via `focus-finops serve`) on every
+    filter change, rather than embedded in the page -- see
+    `fetchAndRenderCost()` in the generated JS. This tab requires the API
+    server to be running; it shows a clear message (not a silent blank
+    page) if it can't reach it.
+  - **Resource Telemetry** tab: same fetch-on-demand approach, for the
+    same reason (see otel_insights.py) -- fetches the correlation summary
+    once per tab load and each resource's daily history only when that
+    resource is selected.
+
+Only the portfolio-wide 3-month cost prediction stays embedded as JSON at
+generation time: it doesn't respond to any of the dashboard's filters, so
+there's nothing to gain by fetching it per interaction.
+
+This means the page is NOT usable fully offline -- it needs network access
+for Chart.js (loaded from a CDN) on first load, and a running
+`focus-finops serve` for anything beyond the prediction chart. That's a
+deliberate trade-off: this dashboard used to embed every dataset as JSON
+directly in the HTML, which doesn't scale (the per-resource OTel telemetry
+alone was ~3MB embedded wholesale) -- the API is what lets a page ask for
+only the page/filter it actually needs.
 """
 from __future__ import annotations
 
@@ -17,7 +33,7 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import cost_prediction, ml_insights, otel_insights, queries
+from . import cost_prediction, queries
 
 CHART_JS_CDN = "https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"
 
@@ -78,34 +94,87 @@ PAGE_TEMPLATE = """<!doctype html>
     font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
     background: var(--page-plane);
     color: var(--text-primary);
-    padding: 14px 24px 32px;
+    padding: 14px 14px 32px;
     -webkit-font-smoothing: antialiased;
   }}
-  .page {{ max-width: 1180px; margin: 0 auto; }}
+  .page {{ max-width: 1440px; margin: 0 auto; }}
+
+  .app-topbar {{
+    position: sticky;
+    top: 0;
+    z-index: 30;
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 14px;
+    margin: -14px -14px 14px;
+    background: var(--surface-1);
+    border-bottom: 1px solid var(--border);
+    box-shadow: var(--shadow-card);
+  }}
+  .app-topbar-left, .footer-brand {{ display: flex; align-items: center; gap: 10px; }}
+  .app-topbar-center {{
+    font-size: 12.5px;
+    font-weight: 750;
+    letter-spacing: 0.04em;
+    color: var(--accent);
+    white-space: nowrap;
+    padding: 4px 12px;
+    border-radius: 999px;
+    background: var(--header-tint);
+  }}
+  .app-topbar-right {{ display: flex; align-items: center; gap: 12px; justify-self: end; }}
+  @media (max-width: 760px) {{ .app-topbar-center {{ display: none; }} }}
+  .app-logo {{
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
+    background: linear-gradient(135deg, var(--accent), #1baf7a);
+    color: #fff;
+    font-size: 12px;
+    font-weight: 750;
+    letter-spacing: 0.02em;
+    flex-shrink: 0;
+  }}
+  .app-brand {{ font-size: 14.5px; font-weight: 700; letter-spacing: -0.01em; }}
+  .env-badge {{
+    font-size: 11px;
+    font-weight: 650;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    padding: 3px 9px;
+    border-radius: 999px;
+    background: var(--surface-2);
+    color: var(--text-secondary);
+    border: 1px solid var(--border);
+  }}
+  .api-status {{ display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-secondary); }}
+  .api-status-dot {{ width: 7px; height: 7px; border-radius: 50%; background: var(--text-muted); flex-shrink: 0; }}
+  .api-status.is-ok .api-status-dot {{ background: var(--status-good); }}
+  .api-status.is-down .api-status-dot {{ background: var(--status-critical); }}
+
   header.study-header {{
     position: relative;
     overflow: hidden;
     text-align: center;
-    padding: 14px 24px;
-    margin-bottom: 14px;
+    padding: 7px 24px;
+    margin-bottom: 10px;
     background: var(--header-tint);
     border: 1px solid var(--border);
-    border-radius: 12px;
+    border-radius: 10px;
     box-shadow: var(--shadow-card);
   }}
   header.study-header::before {{
     content: '';
-    position: absolute; top: 0; left: 0; right: 0; height: 4px;
+    position: absolute; top: 0; left: 0; right: 0; height: 3px;
     background: linear-gradient(90deg, #2a78d6, #1baf7a, #eda100, #e34948);
   }}
-  header.study-header .eyebrow {{
-    display: block;
-    font-size: 10.5px; font-weight: 700; letter-spacing: 0.12em;
-    text-transform: uppercase; color: var(--text-muted);
-    margin: 2px 0 6px;
-  }}
-  header.study-header h1 {{ font-size: 18px; font-weight: 600; line-height: 1.45; margin: 0 0 6px; }}
-  header.study-header p {{ margin: 0; color: var(--text-secondary); font-size: 12.5px; }}
+  header.study-header h1 {{ font-size: 12.5px; font-weight: 650; line-height: 1.4; margin: 0 0 2px; }}
+  header.study-header p {{ margin: 0; color: var(--text-secondary); font-size: 11px; }}
   header.page-header {{ margin-bottom: 14px; }}
   header.page-header h1 {{ font-size: 22px; font-weight: 700; letter-spacing: -0.01em; margin: 0 0 4px; }}
   header.page-header p {{ margin: 0; color: var(--text-secondary); font-size: 13px; }}
@@ -187,6 +256,22 @@ PAGE_TEMPLATE = """<!doctype html>
   .tab-btn:hover {{ color: var(--text-primary); }}
   .tab-btn.active {{ color: var(--accent); border-bottom-color: var(--accent); }}
   .tab-panel[hidden] {{ display: none; }}
+  #tabCost.is-loading {{ opacity: 0.6; transition: opacity 120ms ease; pointer-events: none; }}
+  .api-error-banner {{
+    display: none;
+    padding: 14px 16px;
+    margin-bottom: 14px;
+    background: var(--surface-1);
+    border: 1px solid var(--status-critical);
+    border-radius: 10px;
+    color: var(--text-primary);
+    font-size: 13px;
+  }}
+  .api-error-banner code {{
+    background: var(--surface-2);
+    padding: 1px 5px;
+    border-radius: 4px;
+  }}
 
   .filter-bar {{
     display: flex;
@@ -268,6 +353,27 @@ PAGE_TEMPLATE = """<!doctype html>
     cursor: pointer;
   }}
   .reset-btn:hover {{ color: var(--text-primary); border-color: var(--text-secondary); }}
+
+  .loading-indicator {{
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 12.5px;
+    color: var(--text-secondary);
+  }}
+  .loading-indicator[hidden] {{ display: none; }}
+  .spinner {{
+    width: 13px;
+    height: 13px;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    display: inline-block;
+    animation: focus-finops-spin 700ms linear infinite;
+  }}
+  @keyframes focus-finops-spin {{
+    to {{ transform: rotate(360deg); }}
+  }}
 
   .stat-grid {{
     display: grid;
@@ -351,22 +457,58 @@ PAGE_TEMPLATE = """<!doctype html>
   .badge.good {{ color: var(--status-good); }}
   #otelCorrelationBody .badge {{ text-transform: none; letter-spacing: normal; font-size: 12.5px; white-space: nowrap; }}
 
-  footer.page-footer {{
-    margin-top: 20px;
-    padding-top: 12px;
+  .app-footer {{
+    margin: 28px -14px -32px;
+    padding: 22px 14px 18px;
+    background: var(--surface-2);
+    border-top: 1px solid var(--border);
+  }}
+  .footer-inner {{ max-width: 1440px; margin: 0 auto; }}
+  .footer-grid {{
+    display: grid;
+    grid-template-columns: 1.4fr 1fr 1fr;
+    gap: 24px;
+    margin-bottom: 16px;
+  }}
+  .footer-col h4 {{
+    font-size: 12px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.05em; color: var(--text-secondary); margin: 0 0 8px;
+  }}
+  .footer-col p {{ margin: 0; font-size: 12.5px; color: var(--text-secondary); line-height: 1.6; }}
+  .footer-col ul {{ list-style: none; margin: 0; padding: 0; }}
+  .footer-col li {{ font-size: 12.5px; color: var(--text-secondary); line-height: 1.9; }}
+  .footer-col li code {{ background: var(--surface-1); padding: 1px 5px; border-radius: 4px; font-size: 11.5px; }}
+  a.footer-link {{ color: var(--text-secondary); text-decoration: none; }}
+  a.footer-link:hover {{ color: var(--accent); text-decoration: underline; }}
+  .footer-bottom {{
+    display: flex;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding-top: 14px;
     border-top: 1px solid var(--gridline);
     font-size: 11px;
     color: var(--text-muted);
   }}
+  @media (max-width: 720px) {{ .footer-grid {{ grid-template-columns: 1fr; }} }}
 </style>
 </head>
 <body>
 <div class="viz-root">
+  <header class="app-topbar">
+    <div class="app-topbar-left">
+      <span class="app-logo">FF</span>
+      <span class="app-brand">FOCUS FinOps</span>
+    </div>
+    <div class="app-topbar-center">MBA Capstone Project &middot; FinOps Research</div>
+    <div class="app-topbar-right">
+      <span class="env-badge">Local environment</span>
+      <span class="api-status" id="apiStatusBadge" title="{api_base}"><span class="api-status-dot"></span><span id="apiStatusText">Checking API…</span></span>
+    </div>
+  </header>
   <div class="page">
     <header class="study-header">
-      <span class="eyebrow">MBA Capstone Project &middot; FinOps Research</span>
-      <h1>A Study on the Development of a FinOps Framework to Optimize and Curb Runaway<br/>
-        Cloud Computing (AWS / Azure / GCP) Expenditures</h1>
+      <h1>A Study on the Development of a FinOps Framework to Optimize and Curb Runaway Cloud Computing (AWS / Azure / GCP) Expenditures</h1>
       <p>Supporting dashboard &mdash; FOCUS-based multi-cloud cost &amp; usage analysis</p>
     </header>
 
@@ -381,6 +523,7 @@ PAGE_TEMPLATE = """<!doctype html>
     </div>
 
     <div class="tab-panel" id="tabCost">
+    <div class="api-error-banner" id="costApiError"></div>
     <div class="filter-bar" id="filterBar">
       <details class="filter-group"><summary>Provider <span class="filter-count" id="count-provider"></span></summary>
         <div class="filter-options" id="options-provider"></div>
@@ -395,6 +538,7 @@ PAGE_TEMPLATE = """<!doctype html>
         <div class="filter-options" id="options-owner"></div>
       </details>
       <button class="reset-btn" id="resetBtn" type="button">Reset filters</button>
+      <span class="loading-indicator" id="costLoadingIndicator" hidden><span class="spinner"></span>Loading…</span>
       <div class="group-by">
         <label for="groupBySelect">Group by</label>
         <select id="groupBySelect">
@@ -611,6 +755,7 @@ PAGE_TEMPLATE = """<!doctype html>
           <label for="otelTypeSelect">Resource type</label>
           <select id="otelTypeSelect" style="font-size:12.5px; padding:6px 8px; border-radius:6px; border:1px solid var(--border); background:var(--surface-2); color:var(--text-primary);"></select>
         </div>
+        <span class="loading-indicator" id="otelLoadingIndicator" hidden><span class="spinner"></span>Loading…</span>
       </div>
 
       <details class="accordion" open>
@@ -665,24 +810,61 @@ PAGE_TEMPLATE = """<!doctype html>
       </div>
       </details>
     </div>
-
-    <footer class="page-footer">
-      Generated by focus-finops from data currently loaded in the focus_cost_and_usage table.
-      Charts render client-side via Chart.js (loaded from a CDN) -- this page needs network access on first load.
-    </footer>
   </div>
+
+  <footer class="app-footer">
+    <div class="footer-inner">
+      <div class="footer-grid">
+        <div class="footer-col">
+          <div class="footer-brand">
+            <span class="app-logo">FF</span>
+            <span class="app-brand">FOCUS FinOps</span>
+          </div>
+          <p style="margin-top:8px;">A FOCUS v1.4-based multi-cloud cost &amp; usage dashboard, built to support MBA
+            capstone research on curbing runaway cloud spend.</p>
+        </div>
+        <div class="footer-col">
+          <h4>Dashboard</h4>
+          <ul>
+            <li><a class="footer-link" href="#" data-tab="tabCost">Cost Dashboard</a></li>
+            <li><a class="footer-link" href="#" data-tab="tabTelemetry">Resource Telemetry</a></li>
+          </ul>
+        </div>
+        <div class="footer-col">
+          <h4>Data</h4>
+          <ul>
+            <li>Period: {period_start} to {period_end}</li>
+            <li>Generated: {generated_at}</li>
+            <li>API: <code>{api_base}</code></li>
+          </ul>
+        </div>
+      </div>
+      <div class="footer-bottom">
+        <span>&copy; {generated_year} FOCUS FinOps &middot; MBA Capstone Project</span>
+        <span>Charts render client-side via Chart.js &middot; Data via FOCUS v1.4</span>
+      </div>
+    </div>
+  </footer>
 </div>
 <script>
-const CUBE = {cube_json};
-const COMMITMENT_ROWS = {commitment_json};
-const ZSCORE_ANOMALIES = {zscore_anomalies_json};
-const ML_ANOMALIES = {ml_anomalies_json};
-const ML_FORECAST = {ml_forecast_json};
-const ML_RECOMMENDATIONS = {ml_recommendations_json};
+// The Cost Dashboard tab's data is NOT embedded either (as of this
+// version) -- every dataset that responds to the Provider/Account/
+// Application/Owner filters (the cube, commitment coverage, z-score/ML
+// anomalies, forecast, recommendations) is fetched from the API on every
+// filter change instead, mirroring the Resource Telemetry tab. Only the
+// 3-month prediction stays embedded: it's portfolio-wide and never
+// changes with these filters, so there's nothing to gain by fetching it
+// per interaction.
 const PREDICTION_DAILY = {prediction_daily_json};
 const PREDICTION_MONTHLY = {prediction_monthly_json};
-const OTEL_DAILY = {otel_daily_json};
-const OTEL_CORRELATION = {otel_correlation_json};
+
+// Resource Telemetry tab data is NOT embedded -- it's fetched on demand
+// from the API (`focus-finops serve`) instead, since a resource's full
+// daily history for every resource at once is the single largest dataset
+// this dashboard would otherwise carry (~3MB for this project's synthetic
+// data). See initOtelTab()/renderOtelCharts() below.
+const API_BASE = "{api_base}";
+let otelCorrelationData = [];  // small (one row per resource); fetched once per tab load
 
 // Validated categorical palette (CVD-safe in fixed order; see the dataviz
 // skill's palette reference) -- light/dark variants of the same 8 hues.
@@ -719,23 +901,53 @@ function esc(s) {{
   return div.innerHTML;
 }}
 
-function distinctValues(dim) {{
-  return [...new Set(CUBE.map(r => r[dim]))].sort();
+function setLoading(indicatorId, on) {{
+  const el = document.getElementById(indicatorId);
+  if (el) el.hidden = !on;
+}}
+
+// Populated once from an unfiltered /api/cost/cube fetch (see
+// initCostDashboard()) -- the full universe of values for each filter
+// checkbox group. Filtering itself now happens server-side (each fetch
+// sends the current selection as repeated query params), so there's no
+// client-side "filteredX()" step left for the fetched datasets -- what
+// comes back from the API is already exactly what should be shown.
+let allDimValues = {{ provider: [], account: [], application: [], owner: [] }};
+function distinctValuesFrom(rows, dim) {{
+  return [...new Set(rows.map(r => r[dim]))].sort();
 }}
 
 const state = {{ filters: {{}}, groupBy: 'service_category' }};
-FILTER_DIMS.forEach(dim => {{ state.filters[dim] = new Set(distinctValues(dim)); }});
 
-function filteredCube() {{
-  return CUBE.filter(r => FILTER_DIMS.every(dim => state.filters[dim].has(r[dim])));
+function filterQueryParams(limit) {{
+  const qs = new URLSearchParams();
+  FILTER_DIMS.forEach(dim => {{
+    (state.filters[dim] || new Set()).forEach(v => qs.append(dim, v));
+  }});
+  qs.set('limit', limit || 2000);
+  return qs;
 }}
 
-function filteredCommitmentRows() {{
-  return COMMITMENT_ROWS.filter(r => FILTER_DIMS.every(dim => state.filters[dim].has(r[dim])));
+async function costFetchItems(path, limit) {{
+  const res = await fetch(API_BASE + path + '?' + filterQueryParams(limit).toString());
+  if (!res.ok) throw new Error('API returned ' + res.status);
+  const body = await res.json();
+  return body.items;
 }}
 
-function filteredByDims(arr) {{
-  return arr.filter(r => FILTER_DIMS.every(dim => state.filters[dim].has(r[dim])));
+function costApiUnreachableMessage() {{
+  return 'Could not reach the API at ' + API_BASE + '. Start it with '
+    + '<code>focus-finops serve</code>, then reload this page.';
+}}
+
+function showCostApiError() {{
+  const el = document.getElementById('costApiError');
+  el.innerHTML = costApiUnreachableMessage();
+  el.style.display = 'block';
+}}
+
+function hideCostApiError() {{
+  document.getElementById('costApiError').style.display = 'none';
 }}
 
 function groupSum(rows, dim, key) {{
@@ -756,12 +968,12 @@ function topNWithOther(pairs, n) {{
 function renderFilterOptions() {{
   FILTER_DIMS.forEach(dim => {{
     const container = document.getElementById('options-' + dim);
-    const values = distinctValues(dim);
+    const values = allDimValues[dim];
     const actions = document.createElement('div');
     actions.className = 'filter-option-actions';
     actions.innerHTML = '<span data-act="all">Select all</span><span data-act="none">Clear</span>';
-    actions.querySelector('[data-act=all]').onclick = () => {{ state.filters[dim] = new Set(values); render(); }};
-    actions.querySelector('[data-act=none]').onclick = () => {{ state.filters[dim] = new Set(); render(); }};
+    actions.querySelector('[data-act=all]').onclick = () => {{ state.filters[dim] = new Set(values); fetchAndRenderCost(); }};
+    actions.querySelector('[data-act=none]').onclick = () => {{ state.filters[dim] = new Set(); fetchAndRenderCost(); }};
     container.appendChild(actions);
     values.forEach(v => {{
       const row = document.createElement('label');
@@ -771,7 +983,7 @@ function renderFilterOptions() {{
       cb.checked = state.filters[dim].has(v);
       cb.onchange = () => {{
         if (cb.checked) state.filters[dim].add(v); else state.filters[dim].delete(v);
-        render();
+        fetchAndRenderCost();
       }};
       row.appendChild(cb);
       row.appendChild(document.createTextNode(v));
@@ -782,12 +994,12 @@ function renderFilterOptions() {{
 
 function updateFilterCounts() {{
   FILTER_DIMS.forEach(dim => {{
-    const total = distinctValues(dim).length;
+    const total = allDimValues[dim].length;
     const selected = state.filters[dim].size;
     document.getElementById('count-' + dim).textContent =
       selected === total ? '(all)' : '(' + selected + '/' + total + ')';
     document.querySelectorAll('#options-' + dim + ' input[type=checkbox]').forEach((cb, i) => {{
-      const v = distinctValues(dim)[i];
+      const v = allDimValues[dim][i];
       cb.checked = state.filters[dim].has(v);
     }});
   }});
@@ -818,8 +1030,7 @@ function setTone(tileId, tone) {{
   if (tone) tile.classList.add(tone);
 }}
 
-function renderMlKPIs() {{
-  const zAnomalies = filteredByDims(ZSCORE_ANOMALIES);
+function renderMlKPIs(zAnomalies, anomalies, forecast, recommendations) {{
   const zCritical = zAnomalies.filter(r => r.severity === 'critical').length;
   const zWarning = zAnomalies.length - zCritical;
   document.getElementById('kpi-zscore').textContent = zAnomalies.length.toLocaleString();
@@ -828,7 +1039,6 @@ function renderMlKPIs() {{
     : 'no spikes above the 7-day baseline';
   setTone('tile-zscore', zCritical ? 'tone-critical' : (zWarning ? 'tone-warning' : 'tone-good'));
 
-  const anomalies = filteredByDims(ML_ANOMALIES);
   document.getElementById('kpi-anomalies').textContent = anomalies.length.toLocaleString();
   if (anomalies.length) {{
     document.getElementById('kpi-anomalies-sub').textContent = 'review recommended';
@@ -840,7 +1050,6 @@ function renderMlKPIs() {{
     setTone('tile-anomalies', 'tone-good');
   }}
 
-  const forecast = filteredByDims(ML_FORECAST);
   const riskyAccounts = new Set(forecast.filter(r => r.overrun_risk).map(r => r.provider + '||' + r.account));
   document.getElementById('kpi-overrun').textContent = riskyAccounts.size.toLocaleString();
   if (riskyAccounts.size) {{
@@ -853,7 +1062,7 @@ function renderMlKPIs() {{
     setTone('tile-overrun', 'tone-good');
   }}
 
-  const candidates = filteredByDims(ML_RECOMMENDATIONS).filter(r => r.recommended);
+  const candidates = recommendations.filter(r => r.recommended);
   document.getElementById('kpi-candidates').textContent = candidates.length.toLocaleString();
   document.getElementById('kpi-candidates-sub').textContent = candidates.length
     ? 'steady, high-volume resources'
@@ -1105,8 +1314,8 @@ function renderCommitmentTable(rows) {{
   }}).join('');
 }}
 
-function renderZscoreTable() {{
-  const rows = filteredByDims(ZSCORE_ANOMALIES).slice(0, 15);
+function renderZscoreTable(allRows) {{
+  const rows = allRows.slice(0, 15);
   const tbody = document.getElementById('zscoreBody');
   if (!rows.length) {{
     tbody.innerHTML = '<tr><td colspan="9" class="empty">No z-score anomalies for the current filter selection.</td></tr>';
@@ -1122,8 +1331,8 @@ function renderZscoreTable() {{
   }}).join('');
 }}
 
-function renderAnomalyTable() {{
-  const rows = filteredByDims(ML_ANOMALIES).slice(0, 15);
+function renderAnomalyTable(allRows) {{
+  const rows = allRows.slice(0, 15);
   const tbody = document.getElementById('anomalyBody');
   if (!rows.length) {{
     tbody.innerHTML = '<tr><td colspan="8" class="empty">No cost anomalies flagged for the current filter selection.</td></tr>';
@@ -1138,8 +1347,8 @@ function renderAnomalyTable() {{
   }}).join('');
 }}
 
-function renderForecastTable() {{
-  const rows = filteredByDims(ML_FORECAST).slice(0, 15);
+function renderForecastTable(allRows) {{
+  const rows = allRows.slice(0, 15);
   const tbody = document.getElementById('forecastBody');
   if (!rows.length) {{
     tbody.innerHTML = '<tr><td colspan="7" class="empty">Not enough monthly history to forecast for the current filter selection.</td></tr>';
@@ -1155,8 +1364,8 @@ function renderForecastTable() {{
   }}).join('');
 }}
 
-function renderRecommendTable() {{
-  const rows = filteredByDims(ML_RECOMMENDATIONS).filter(r => r.recommended).slice(0, 15);
+function renderRecommendTable(allRows) {{
+  const rows = allRows.filter(r => r.recommended).slice(0, 15);
   const tbody = document.getElementById('recommendBody');
   if (!rows.length) {{
     tbody.innerHTML = '<tr><td colspan="7" class="empty">No commitment candidates for the current filter selection.</td></tr>';
@@ -1169,27 +1378,78 @@ function renderRecommendTable() {{
   }}).join('');
 }}
 
-function render() {{
-  const rows = filteredCube();
+// Cached results of the last successful fetch -- `renderFromCache()` runs
+// off these without hitting the network (used when only "Group by"
+// changes, which is a pure client-side re-aggregation of the same rows).
+let cubeRows = [], commitmentRows = [], zscoreRows = [], anomalyRows = [], forecastRows = [], recommendRows = [];
+let costRenderToken = 0;
+
+function renderFromCache() {{
   updateFilterCounts();
-  renderKPIs(rows);
-  renderMlKPIs();
-  renderBreakdownChart(rows);
-  renderAccountChart(rows);
-  renderTrendChart(rows);
-  renderProviderChart(rows);
-  renderTopResources(rows);
-  renderCommitmentTable(filteredCommitmentRows());
-  renderZscoreTable();
-  renderAnomalyTable();
-  renderForecastTable();
-  renderRecommendTable();
+  renderKPIs(cubeRows);
+  renderMlKPIs(zscoreRows, anomalyRows, forecastRows, recommendRows);
+  renderBreakdownChart(cubeRows);
+  renderAccountChart(cubeRows);
+  renderTrendChart(cubeRows);
+  renderProviderChart(cubeRows);
+  renderTopResources(cubeRows);
+  renderCommitmentTable(commitmentRows);
+  renderZscoreTable(zscoreRows);
+  renderAnomalyTable(anomalyRows);
+  renderForecastTable(forecastRows);
+  renderRecommendTable(recommendRows);
 }}
 
-// --- Resource Telemetry tab -------------------------------------------
+async function fetchAndRenderCost() {{
+  const myToken = ++costRenderToken;
+  // An empty checkbox group means "show nothing" (matching the old
+  // client-side filter's semantics) -- but an empty query-param list means
+  // "no filter" (show everything) to the API, so this case is handled
+  // client-side rather than sent as a request.
+  const anyDimEmpty = FILTER_DIMS.some(dim => (state.filters[dim] || new Set()).size === 0);
+
+  document.getElementById('tabCost').classList.add('is-loading');
+  setLoading('costLoadingIndicator', true);
+  if (anyDimEmpty) {{
+    cubeRows = []; commitmentRows = []; zscoreRows = []; anomalyRows = []; forecastRows = []; recommendRows = [];
+  }} else {{
+    try {{
+      [cubeRows, commitmentRows, zscoreRows, anomalyRows, forecastRows, recommendRows] = await Promise.all([
+        costFetchItems('/api/cost/cube'),
+        costFetchItems('/api/cost/commitment-utilization'),
+        costFetchItems('/api/ml/zscore-anomalies'),
+        costFetchItems('/api/ml/anomalies'),
+        costFetchItems('/api/ml/forecast'),
+        costFetchItems('/api/ml/recommendations'),
+      ]);
+    }} catch (err) {{
+      if (myToken === costRenderToken) {{
+        document.getElementById('tabCost').classList.remove('is-loading');
+        setLoading('costLoadingIndicator', false);
+        showCostApiError();
+      }}
+      return;
+    }}
+  }}
+
+  if (myToken !== costRenderToken) return;  // a newer filter change superseded this request
+  hideCostApiError();
+  document.getElementById('tabCost').classList.remove('is-loading');
+  setLoading('costLoadingIndicator', false);
+  renderFromCache();
+}}
+
+// --- Resource Telemetry tab --------------------------------------------
+// Unlike the Cost Dashboard tab (which filters an already-embedded, fully
+// in-memory dataset instantly), this tab fetches from the API on demand:
+// the correlation summary once per tab load (small -- one row per
+// resource), and each resource's daily history only when that resource is
+// actually selected (potentially large across a whole fleet; not worth
+// carrying for resources nobody is looking at).
 let otelCostChart, otelUtilChart;
 let otelTabInitialized = false;
 let otelTypeFilter = 'all';
+let otelCorrelationLoaded = false;
 
 const OTEL_METRIC_LABELS = {{
   'system.cpu.utilization': 'CPU utilization',
@@ -1204,15 +1464,45 @@ const OTEL_METRIC_LABELS = {{
 // order it's first seen in the data.
 const OTEL_TYPE_ORDER = ['Compute', 'Databases', 'Storage', 'Networking'];
 
+async function otelFetchItems(path) {{
+  const res = await fetch(API_BASE + path);
+  if (!res.ok) throw new Error('API returned ' + res.status);
+  const body = await res.json();
+  return body.items;
+}}
+
+function otelApiUnreachableMessage() {{
+  return 'Could not reach the API at ' + API_BASE + '. Start it with '
+    + '<code>focus-finops serve</code>, then reload this page.';
+}}
+
+function showOtelChartError(message) {{
+  ['otelCostChart', 'otelUtilChart'].forEach(id => {{
+    const el = document.getElementById(id);
+    const wrap = el && el.closest('.chart-canvas-wrap');
+    if (wrap) wrap.outerHTML = '<p class="empty">' + message + '</p>';
+  }});
+}}
+
+function showOtelError(message) {{
+  // The correlation fetch itself failed -- nothing on this tab loaded.
+  ['kpi-otel-resources', 'kpi-otel-healthy', 'kpi-otel-rightsizing', 'kpi-otel-investigate']
+    .forEach(id => {{ document.getElementById(id).textContent = '-'; }});
+  document.getElementById('otelResourceSelect').innerHTML = '';
+  document.getElementById('otelCorrelationBody').innerHTML =
+    '<tr><td colspan="7" class="empty">' + message + '</td></tr>';
+  showOtelChartError(message);
+}}
+
 function otelTypesPresent() {{
-  const seen = new Set(OTEL_CORRELATION.map(r => r.service_category));
+  const seen = new Set(otelCorrelationData.map(r => r.service_category));
   return OTEL_TYPE_ORDER.filter(t => seen.has(t)).concat([...seen].filter(t => !OTEL_TYPE_ORDER.includes(t)));
 }}
 
 function filteredOtelCorrelation() {{
   return otelTypeFilter === 'all'
-    ? OTEL_CORRELATION
-    : OTEL_CORRELATION.filter(r => r.service_category === otelTypeFilter);
+    ? otelCorrelationData
+    : otelCorrelationData.filter(r => r.service_category === otelTypeFilter);
 }}
 
 function populateOtelTypeSelect() {{
@@ -1242,8 +1532,18 @@ function populateOtelResourceSelect() {{
   if (rows.length) select.value = rows[0].resource_id;
 }}
 
-function renderOtelCharts(resourceId) {{
-  const rows = OTEL_DAILY.filter(r => r.resource_id === resourceId).sort((a, b) => a.day < b.day ? -1 : 1);
+async function renderOtelCharts(resourceId) {{
+  let rows;
+  setLoading('otelLoadingIndicator', true);
+  try {{
+    rows = await otelFetchItems('/api/otel/daily?limit=2000&resource_id=' + encodeURIComponent(resourceId));
+  }} catch (err) {{
+    setLoading('otelLoadingIndicator', false);
+    showOtelChartError(otelApiUnreachableMessage());
+    return;
+  }}
+  setLoading('otelLoadingIndicator', false);
+  rows.sort((a, b) => a.day < b.day ? -1 : 1);
   const colors = axisColors();
   const labels = rows.map(r => r.day);
 
@@ -1301,7 +1601,7 @@ function renderOtelCharts(resourceId) {{
 function renderOtelCorrelationTable() {{
   const tbody = document.getElementById('otelCorrelationBody');
   const rows = filteredOtelCorrelation();
-  if (!OTEL_CORRELATION.length) {{
+  if (!otelCorrelationData.length) {{
     tbody.innerHTML = '<tr><td colspan="7" class="empty">No OTel telemetry loaded -- run `generate-otel` then `ingest-otel` first.</td></tr>';
     return;
   }}
@@ -1321,21 +1621,37 @@ function renderOtelCorrelationTable() {{
   }}).join('');
 }}
 
-function refreshOtelView() {{
+async function refreshOtelView() {{
   renderOtelKPIs();
   populateOtelResourceSelect();
   renderOtelCorrelationTable();
   const rows = filteredOtelCorrelation();
   if (rows.length) {{
-    renderOtelCharts(rows[0].resource_id);
+    await renderOtelCharts(rows[0].resource_id);
   }}
 }}
 
-function initOtelTab() {{
+async function initOtelTab() {{
   if (otelTabInitialized) return;
+
+  if (!otelCorrelationLoaded) {{
+    setLoading('otelLoadingIndicator', true);
+    try {{
+      otelCorrelationData = await otelFetchItems('/api/otel/correlation?limit=2000');
+      otelCorrelationLoaded = true;
+    }} catch (err) {{
+      // Don't set otelTabInitialized -- leaves this retryable, so starting
+      // the API and reopening the tab (no full page reload needed) works.
+      setLoading('otelLoadingIndicator', false);
+      showOtelError(otelApiUnreachableMessage());
+      return;
+    }}
+    setLoading('otelLoadingIndicator', false);
+  }}
+
   otelTabInitialized = true;
   populateOtelTypeSelect();
-  refreshOtelView();
+  await refreshOtelView();
 
   document.getElementById('otelResourceSelect').addEventListener('change', (e) => {{
     renderOtelCharts(e.target.value);
@@ -1346,23 +1662,40 @@ function initOtelTab() {{
   }});
 }}
 
+function activateTab(tabId) {{
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tabId));
+  document.querySelectorAll('.tab-panel').forEach(p => {{ p.hidden = p.id !== tabId; }});
+  if (tabId === 'tabTelemetry') initOtelTab();
+  window.scrollTo({{ top: 0, behavior: 'smooth' }});
+}}
 document.querySelectorAll('.tab-btn').forEach(btn => {{
-  btn.addEventListener('click', () => {{
-    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-    document.querySelectorAll('.tab-panel').forEach(p => p.hidden = true);
-    btn.classList.add('active');
-    document.getElementById(btn.dataset.tab).hidden = false;
-    if (btn.dataset.tab === 'tabTelemetry') initOtelTab();
-  }});
+  btn.addEventListener('click', () => activateTab(btn.dataset.tab));
 }});
+document.querySelectorAll('a.footer-link[data-tab]').forEach(link => {{
+  link.addEventListener('click', (e) => {{ e.preventDefault(); activateTab(link.dataset.tab); }});
+}});
+
+async function checkApiHealth() {{
+  const badge = document.getElementById('apiStatusBadge');
+  const text = document.getElementById('apiStatusText');
+  try {{
+    const res = await fetch(API_BASE + '/health');
+    if (!res.ok) throw new Error('bad status');
+    badge.className = 'api-status is-ok';
+    text.textContent = 'API connected';
+  }} catch (err) {{
+    badge.className = 'api-status is-down';
+    text.textContent = 'API unreachable';
+  }}
+}}
 
 document.getElementById('groupBySelect').addEventListener('change', (e) => {{
   state.groupBy = e.target.value;
-  render();
+  renderFromCache();  // pure re-aggregation of already-fetched rows -- no new request needed
 }});
 document.getElementById('resetBtn').addEventListener('click', () => {{
-  FILTER_DIMS.forEach(dim => {{ state.filters[dim] = new Set(distinctValues(dim)); }});
-  render();
+  FILTER_DIMS.forEach(dim => {{ state.filters[dim] = new Set(allDimValues[dim]); }});
+  fetchAndRenderCost();
 }});
 
 // Charts inside a collapsed accordion can be laid out at zero size; force a
@@ -1378,16 +1711,36 @@ document.getElementById('accordionOtelDetail').addEventListener('toggle', functi
   if (this.open) {{ [otelCostChart, otelUtilChart].forEach(c => c && c.resize()); }}
 }});
 
-renderFilterOptions();
-render();
+async function initCostDashboard() {{
+  let initialCube;
+  setLoading('costLoadingIndicator', true);
+  try {{
+    initialCube = await costFetchItems('/api/cost/cube');
+  }} catch (err) {{
+    setLoading('costLoadingIndicator', false);
+    showCostApiError();
+    return;
+  }}
+  setLoading('costLoadingIndicator', false);
+  hideCostApiError();
+  FILTER_DIMS.forEach(dim => {{
+    allDimValues[dim] = distinctValuesFrom(initialCube, dim);
+    state.filters[dim] = new Set(allDimValues[dim]);
+  }});
+  renderFilterOptions();
+  await fetchAndRenderCost();
+}}
+
+initCostDashboard();
 renderPredictionChart();
+checkApiHealth();
 </script>
 </body>
 </html>
 """
 
 
-def run(out_path: Path) -> Path:
+def run(out_path: Path, api_base: str = "http://127.0.0.1:8000") -> Path:
     totals = queries.overall_totals()
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1402,47 +1755,26 @@ def run(out_path: Path) -> Path:
         )
         return out_path
 
-    cube_df = queries.dashboard_cube().round(2)
-    cube_json = cube_df.to_json(orient="records").replace("</", "<\\/")
-
-    commitment_df = queries.commitment_utilization().round(2)
-    commitment_json = commitment_df.to_json(orient="records").replace("</", "<\\/")
-
-    zscore_df = ml_insights.detect_zscore_anomalies()
-    zscore_json = zscore_df.to_json(orient="records").replace("</", "<\\/")
-
-    anomalies_df = ml_insights.detect_cost_anomalies()
-    anomalies_json = anomalies_df.to_json(orient="records").replace("</", "<\\/")
-
-    forecast_df = ml_insights.forecast_spend()
-    forecast_json = forecast_df.to_json(orient="records").replace("</", "<\\/")
-
-    recommendations_df = ml_insights.recommend_commitments()
-    recommendations_json = recommendations_df.to_json(orient="records").replace("</", "<\\/")
-
+    # The cube/commitment/z-score/anomaly/forecast/recommendation datasets
+    # are deliberately NOT computed or embedded here anymore -- the Cost
+    # Dashboard tab now fetches all of them from the API per filter change
+    # (see api.py and this template's fetchAndRenderCost()). Only the
+    # portfolio-wide 3-month prediction (unaffected by those filters) is
+    # still embedded below.
     prediction = cost_prediction.predict_cost()
     prediction_daily_json = prediction["daily"].to_json(orient="records").replace("</", "<\\/")
     prediction_monthly_json = prediction["monthly"].to_json(orient="records").replace("</", "<\\/")
 
-    otel_daily_df = otel_insights.resource_daily_series().round(2)
-    otel_daily_json = otel_daily_df.to_json(orient="records").replace("</", "<\\/")
-    otel_correlation_json = otel_insights.cost_utilization_correlation().to_json(orient="records").replace("</", "<\\/")
-
+    now = datetime.now(timezone.utc)
     html = PAGE_TEMPLATE.format(
         chart_js_cdn=CHART_JS_CDN,
-        generated_at=datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
+        generated_at=now.strftime("%Y-%m-%d %H:%M UTC"),
+        generated_year=now.year,
         period_start=str(totals["period_start"])[:10],
         period_end=str(totals["period_end"])[:10],
-        cube_json=cube_json,
-        commitment_json=commitment_json,
-        zscore_anomalies_json=zscore_json,
-        ml_anomalies_json=anomalies_json,
-        ml_forecast_json=forecast_json,
-        ml_recommendations_json=recommendations_json,
         prediction_daily_json=prediction_daily_json,
         prediction_monthly_json=prediction_monthly_json,
-        otel_daily_json=otel_daily_json,
-        otel_correlation_json=otel_correlation_json,
+        api_base=api_base,
     )
     out_path.write_text(html, encoding="utf-8")
     return out_path

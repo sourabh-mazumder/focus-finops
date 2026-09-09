@@ -24,42 +24,66 @@ PRIMARY_METRIC = {
 }
 
 
-def _otel_long() -> pd.DataFrame:
+def _otel_long(resource_id: str | None = None) -> pd.DataFrame:
     # otel_resource_metrics is optional (created by `setup-otel-db` /
     # populated by `generate-otel` + `ingest-otel`) -- treat "table doesn't
     # exist yet" the same as "no data yet" rather than failing the whole
     # report.
+    #
+    # `resource_id`, when given, is a genuine bind parameter (`:resource_id`)
+    # rather than an f-string-interpolated value -- unlike every other value
+    # embedded into SQL in this module (fixed category names, computed
+    # dates), this one can originate from an HTTP query parameter (see
+    # api.py) and must never be pasted into the SQL text directly.
+    where = "WHERE resource_id = :resource_id" if resource_id else ""
     try:
-        return db.query_df(f"""
+        return db.query_df(
+            f"""
             SELECT resource_id, resource_name,
                    cloud_provider AS provider, cloud_account_name AS account,
                    service_category, metric_name, metric_day AS day, value
             FROM {OTEL_TABLE}
+            {where}
             ORDER BY resource_id, metric_day;
-        """)
+            """,
+            params={"resource_id": resource_id} if resource_id else None,
+        )
     except db.DbError:
         return pd.DataFrame()
 
 
-def _daily_cost() -> pd.DataFrame:
-    return db.query_df(f"""
+def _daily_cost(resource_id: str | None = None) -> pd.DataFrame:
+    if resource_id:
+        where = "resource_id = :resource_id"
+        params = {"resource_id": resource_id}
+    else:
+        where = f"resource_id IN (SELECT DISTINCT resource_id FROM {OTEL_TABLE})"
+        params = None
+    return db.query_df(
+        f"""
         SELECT resource_id,
                date_trunc('day', charge_period_start)::date AS day,
                SUM(billed_cost) AS cost
         FROM {FOCUS_TABLE}
-        WHERE resource_id IN (SELECT DISTINCT resource_id FROM {OTEL_TABLE})
+        WHERE {where}
         GROUP BY 1, 2
         ORDER BY 1, 2;
-    """)
+        """,
+        params=params,
+    )
 
 
-def resource_daily_series() -> pd.DataFrame:
+def resource_daily_series(resource_id: str | None = None) -> pd.DataFrame:
     """One row per (resource, day): cost plus each of that resource's
     utilization metrics as columns (pivoted wide) -- the shape the
     dashboard's per-resource chart and the correlation analysis both need.
-    Empty DataFrame if no OTel data has been ingested yet.
+
+    Pass `resource_id` to filter at the SQL level to just that resource
+    (what the API's per-resource endpoint uses -- see api.py) instead of
+    pulling every resource's full history. Empty DataFrame if no OTel data
+    has been ingested yet (or no rows match `resource_id`).
     """
-    long_df = _otel_long()
+    long_df = _otel_long(resource_id)
     if long_df.empty:
         return pd.DataFrame()
 
@@ -71,7 +95,7 @@ def resource_daily_series() -> pd.DataFrame:
     ).reset_index()
     wide["day"] = pd.to_datetime(wide["day"])
 
-    cost_df = _daily_cost()
+    cost_df = _daily_cost(resource_id)
     cost_df["day"] = pd.to_datetime(cost_df["day"])
 
     merged = wide.merge(cost_df, on=["resource_id", "day"], how="left")

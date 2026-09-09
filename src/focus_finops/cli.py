@@ -73,6 +73,17 @@ def ingest_otel_cmd(csv_file: str):
     click.echo(f"Loaded {result.rows_loaded} rows from {result.source_file}.")
 
 
+@main.command("serve")
+@click.option("--host", default="127.0.0.1", show_default=True)
+@click.option("--port", default=8000, show_default=True)
+@click.option("--debug", is_flag=True, default=False, help="Enable Flask's debug/reload mode.")
+def serve_cmd(host: str, port: int, debug: bool):
+    """Run the REST API (paginated/filtered access to cost data and
+    analytics) that the dashboard's Resource Telemetry tab fetches from."""
+    from .api import app
+    app.run(host=host, port=port, debug=debug)
+
+
 @main.group("report")
 def report_group():
     """Generate reports from the data already loaded in the database."""
@@ -95,9 +106,13 @@ def report_export_cmd(out_dir: str):
 
 @report_group.command("dashboard")
 @click.option("--out-file", default="reports_output/dashboard.html", show_default=True)
-def report_dashboard_cmd(out_file: str):
+@click.option(
+    "--api-base", default="http://127.0.0.1:8000", show_default=True,
+    help="Where the Resource Telemetry tab fetches from -- run `focus-finops serve` there.",
+)
+def report_dashboard_cmd(out_file: str, api_base: str):
     """Build a single-file interactive HTML cost dashboard."""
-    path = html_dashboard.run(Path(out_file))
+    path = html_dashboard.run(Path(out_file), api_base=api_base)
     click.echo(f"Wrote {path}")
 
 

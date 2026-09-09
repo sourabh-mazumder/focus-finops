@@ -117,11 +117,20 @@ def _normalize_dates(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def query_df(sql: str) -> pd.DataFrame:
-    """Run a SELECT and return the results as a pandas DataFrame."""
+def query_df(sql: str, params: dict | None = None) -> pd.DataFrame:
+    """Run a SELECT and return the results as a pandas DataFrame.
+
+    `sql` may reference named bind parameters (`:name`) resolved from
+    `params`. Every query in this codebase that only ever embeds trusted,
+    internally-generated values (a fixed category name, a computed date)
+    still builds its SQL with an f-string, same as before -- but anything
+    resolving a value from outside the process (an HTTP query parameter, in
+    particular -- see api.py) must pass it through `params` instead of
+    interpolating it into the SQL text, or it's a SQL injection vector.
+    """
     try:
         with get_engine().connect() as conn:
-            df = pd.read_sql_query(sa.text(sql), conn)
+            df = pd.read_sql_query(sa.text(sql), conn, params=params)
     except sa.exc.SQLAlchemyError as exc:
         raise DbError(f"Query failed: {exc}\n  sql: {sql}") from exc
     return _normalize_dates(df)
