@@ -120,6 +120,62 @@ PAGE_TEMPLATE = """<!doctype html>
   .section-divider:first-of-type {{ margin-top: 0; }}
   .section-divider::after {{ content: ''; flex: 1; height: 1px; background: var(--gridline); }}
 
+  details.accordion {{
+    margin: 22px 0 0;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--surface-2);
+    box-shadow: var(--shadow-card);
+    overflow: hidden;
+  }}
+  summary.accordion-summary {{
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    cursor: pointer;
+    list-style: none;
+    padding: 15px 20px;
+    background: var(--surface-1);
+    border-left: 3px solid var(--accent);
+    border-bottom: 1px solid var(--border);
+    font-size: 13.5px;
+    font-weight: 650;
+    letter-spacing: 0.01em;
+    color: var(--text-primary);
+    user-select: none;
+    transition: background 120ms ease;
+  }}
+  summary.accordion-summary::-webkit-details-marker {{ display: none; }}
+  summary.accordion-summary:hover {{ background: var(--surface-2); }}
+  details.accordion:not([open]) > summary.accordion-summary {{ border-bottom-color: transparent; }}
+  .accordion-chevron {{
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: var(--surface-2);
+    color: var(--text-secondary);
+    flex-shrink: 0;
+    transition: transform 200ms ease, background 120ms ease, color 120ms ease;
+  }}
+  .accordion-chevron::before {{
+    content: '';
+    width: 0;
+    height: 0;
+    border-left: 4px solid transparent;
+    border-right: 4px solid transparent;
+    border-top: 5px solid currentColor;
+  }}
+  details.accordion[open] > summary.accordion-summary .accordion-chevron {{ transform: rotate(180deg); }}
+  summary.accordion-summary:hover .accordion-chevron {{ background: var(--surface-1); color: var(--accent); }}
+  .accordion-body {{ padding: 16px 16px 18px; }}
+  .accordion-body > .chart-card:last-child,
+  .accordion-body > .chart-grid:last-child,
+  .accordion-body > .chart-grid.full:last-child {{ margin-bottom: 0; }}
+
   .filter-bar {{
     display: flex;
     flex-wrap: wrap;
@@ -368,7 +424,9 @@ PAGE_TEMPLATE = """<!doctype html>
       </div>
     </section>
 
-    <div class="section-divider"><span>Cost breakdown &amp; trends</span></div>
+    <details class="accordion" id="accordionBreakdown" open>
+    <summary class="accordion-summary"><span>Cost breakdown &amp; trends</span><span class="accordion-chevron"></span></summary>
+    <div class="accordion-body">
     <section class="chart-grid">
       <div class="chart-card">
         <h3 id="breakdownTitle">Cost by Service Category</h3>
@@ -408,8 +466,12 @@ PAGE_TEMPLATE = """<!doctype html>
         </table>
       </div>
     </section>
+    </div>
+    </details>
 
-    <div class="section-divider"><span>Commitment &amp; reservation analysis</span></div>
+    <details class="accordion" open>
+    <summary class="accordion-summary"><span>Commitment &amp; reservation analysis</span><span class="accordion-chevron"></span></summary>
+    <div class="accordion-body">
     <section class="chart-card" id="commitmentSection">
       <h3>Commitment / reservation coverage</h3>
       <p class="chart-subtitle">Share of each committed resource's usage billed at the discounted commitment rate
@@ -423,8 +485,12 @@ PAGE_TEMPLATE = """<!doctype html>
         </table>
       </div>
     </section>
+    </div>
+    </details>
 
-    <div class="section-divider"><span>Statistical cost anomaly detection (Z-score)</span></div>
+    <details class="accordion" open>
+    <summary class="accordion-summary"><span>Statistical cost anomaly detection (Z-score)</span><span class="accordion-chevron"></span></summary>
+    <div class="accordion-body">
     <section class="chart-card" id="zscoreSection">
       <h3>Rolling z-score anomalies</h3>
       <p class="chart-subtitle">Per service, each day's cost is compared to the trailing 7-day mean and standard
@@ -438,8 +504,12 @@ PAGE_TEMPLATE = """<!doctype html>
         </table>
       </div>
     </section>
+    </div>
+    </details>
 
-    <div class="section-divider"><span>Machine learning-based optimization insights</span></div>
+    <details class="accordion" open>
+    <summary class="accordion-summary"><span>Machine learning-based optimization insights</span><span class="accordion-chevron"></span></summary>
+    <div class="accordion-body">
     <section class="chart-card" id="mlSection">
       <h3>ML-identified cost optimization opportunities</h3>
       <p class="chart-subtitle">Anomaly detection (IsolationForest), spend forecasting (linear trend), and commitment
@@ -480,8 +550,12 @@ PAGE_TEMPLATE = """<!doctype html>
         </div>
       </div>
     </section>
+    </div>
+    </details>
 
-    <div class="section-divider"><span>3-month cost prediction</span></div>
+    <details class="accordion" id="accordionPrediction" open>
+    <summary class="accordion-summary"><span>3-month cost prediction</span><span class="accordion-chevron"></span></summary>
+    <div class="accordion-body">
     <section class="chart-card" id="predictionSection">
       <h3>Blended cost prediction, next 3 months</h3>
       <p class="chart-subtitle">A 3-method blend, one per cost segment: a <strong>fixed-fee model</strong> for
@@ -499,6 +573,8 @@ PAGE_TEMPLATE = """<!doctype html>
         </table>
       </div>
     </section>
+    </div>
+    </details>
 
     <footer class="page-footer">
       Generated by focus-finops from data currently loaded in the focus_cost_and_usage table.
@@ -1025,6 +1101,16 @@ document.getElementById('groupBySelect').addEventListener('change', (e) => {{
 document.getElementById('resetBtn').addEventListener('click', () => {{
   FILTER_DIMS.forEach(dim => {{ state.filters[dim] = new Set(distinctValues(dim)); }});
   render();
+}});
+
+// Charts inside a collapsed accordion can be laid out at zero size; force a
+// resize when the accordion containing them is reopened, in case the
+// browser's own ResizeObserver-based handling doesn't catch it.
+document.getElementById('accordionBreakdown').addEventListener('toggle', function () {{
+  if (this.open) {{ [breakdownChart, providerChart, accountChart, trendChart].forEach(c => c && c.resize()); }}
+}});
+document.getElementById('accordionPrediction').addEventListener('toggle', function () {{
+  if (this.open && predictionChart) predictionChart.resize();
 }});
 
 renderFilterOptions();
