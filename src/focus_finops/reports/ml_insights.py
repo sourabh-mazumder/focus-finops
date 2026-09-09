@@ -1,15 +1,17 @@
-"""ML-based cost optimization insights: anomaly detection, spend forecasting,
-and commitment-candidate recommendations.
+"""Cost optimization insights: anomaly detection (a classical rolling
+z-score method and, separately, IsolationForest), spend forecasting, and
+commitment-candidate recommendations.
 
 Unlike the plain SQL aggregations in `queries.py`, these pull row-level data
-into pandas and fit lightweight scikit-learn models (IsolationForest,
+into pandas and either compute rolling statistics directly (the z-score
+method) or fit lightweight scikit-learn models (IsolationForest,
 LinearRegression, KMeans). The choices here favor speed and explainability
 over sophistication -- they're sized for a multi-month synthetic/sample
 dataset, not tuned as production-grade cost-anomaly or forecasting systems.
 
-All three functions add `provider` / `account` / `application` / `owner`
-columns (matching `queries.dashboard_cube()`'s dimension values) so their
-output can be filtered the same way as the rest of the dashboard.
+All functions add `provider` / `account` / `application` / `owner` columns
+(matching `queries.dashboard_cube()`'s dimension values) so their output can
+be filtered the same way as the rest of the dashboard.
 """
 from __future__ import annotations
 
@@ -46,6 +48,97 @@ def _resource_daily(extra_where: str = "") -> pd.DataFrame:
         GROUP BY 1, 2, 3, 4, 5, 6, 7, 8
         ORDER BY resource, day;
     """)
+
+
+def _service_daily() -> pd.DataFrame:
+    """Daily total cost per service (all charges under that service --
+    resource-level usage plus any account-level charges billed under it,
+    e.g. support/tax), unlike `_resource_daily()` which is scoped to
+    resource-level usage rows only.
+    """
+    return db.query_df(f"""
+        SELECT
+            service_provider_name                                            AS provider,
+            COALESCE(sub_account_name, sub_account_id, billing_account_name) AS account,
+            COALESCE(tags->>'Application', '(untagged)')                    AS application,
+            COALESCE(tags->>'Owner', '(untagged)')                          AS owner,
+            service_category,
+            service_name,
+            date_trunc('day', charge_period_start)::date                    AS day,
+            SUM(billed_cost) AS cost
+        FROM {TABLE}
+        GROUP BY 1, 2, 3, 4, 5, 6, 7
+        ORDER BY provider, account, service_name, day;
+    """)
+
+
+def detect_zscore_anomalies(
+    window: int = 7,
+    min_periods: int = 5,
+    warn_z: float = 2.0,
+    critical_z: float = 3.0,
+) -> pd.DataFrame:
+    """Classical rolling z-score anomaly detection, per service (per
+    provider/account/application/owner/service-category/service combination):
+    for each day, compares that day's cost against the trailing rolling
+    mean and standard deviation of the *preceding* `window` days (today's
+    own value never leaks into its own baseline), and flags it when
+
+        z = (today's cost - rolling mean) / rolling std
+
+    exceeds `warn_z` (default +2.0, "warning") or `critical_z` (default
+    +3.0, "critical") -- the standard FinOps rule of thumb for a same-day
+    cost spike. Only positive z-scores are flagged (spend spikes); an
+    unusually *low* day is not treated as an optimization signal here.
+
+    A simpler, more transparent complement to `detect_cost_anomalies()`'s
+    IsolationForest: this looks at day-to-day cost swings for a service,
+    while the IsolationForest version looks at each individual resource's
+    full cost distribution. The two methods can (and do) disagree -- that
+    disagreement is itself informative for a FinOps review.
+
+    Combinations with fewer than `min_periods` + 1 days of history are
+    skipped -- too little data for a rolling baseline to mean anything.
+    """
+    daily = _service_daily()
+    if daily.empty:
+        return pd.DataFrame()
+
+    group_cols = ["provider", "account", "application", "owner", "service_category", "service_name"]
+    flagged = []
+    for _, grp in daily.groupby(group_cols, sort=False):
+        grp = grp.sort_values("day").reset_index(drop=True)
+        if len(grp) < min_periods + 1:
+            continue
+
+        # Trailing window over the PRIOR days only (shift(1)), so today's
+        # cost is judged against a baseline that excludes itself.
+        trailing = grp["cost"].shift(1).rolling(window=window, min_periods=min_periods)
+        grp["rolling_mean"] = trailing.mean()
+        grp["rolling_std"] = trailing.std(ddof=0)
+
+        has_baseline = grp["rolling_std"] > 0
+        grp["zscore"] = np.nan
+        grp.loc[has_baseline, "zscore"] = (
+            (grp.loc[has_baseline, "cost"] - grp.loc[has_baseline, "rolling_mean"])
+            / grp.loc[has_baseline, "rolling_std"]
+        )
+
+        hits = grp[grp["zscore"] >= warn_z].copy()
+        if hits.empty:
+            continue
+        hits["severity"] = np.where(hits["zscore"] >= critical_z, "critical", "warning")
+        flagged.append(hits)
+
+    if not flagged:
+        return pd.DataFrame()
+
+    result = pd.concat(flagged, ignore_index=True)
+    result["day"] = result["day"].astype(str)
+    result = result.sort_values("zscore", ascending=False)
+    return result[group_cols + ["day", "cost", "rolling_mean", "rolling_std", "zscore", "severity"]].round({
+        "cost": 2, "rolling_mean": 2, "rolling_std": 2, "zscore": 2,
+    })
 
 
 def detect_cost_anomalies(contamination: float = 0.06, min_days: int = 14) -> pd.DataFrame:

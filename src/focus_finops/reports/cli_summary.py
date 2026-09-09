@@ -88,6 +88,25 @@ def run() -> None:
         print("utilization -- FOCUS usage rows don't carry the commitment's purchased quantity.")
     print()
 
+    print("-- Statistical: cost anomalies (top 10, rolling z-score) " + "-" * 1)
+    df = ml_insights.detect_zscore_anomalies()
+    if df.empty:
+        print("(not enough per-service daily history to compute a rolling baseline)")
+    else:
+        counts = df["severity"].value_counts()
+        show = df.head(10).copy()
+        show["cost"] = show["cost"].map(_money)
+        show["rolling_mean"] = show["rolling_mean"].map(_money)
+        show["rolling_std"] = show["rolling_std"].map(_money)
+        print(tabulate(show, headers="keys", tablefmt="simple", showindex=False))
+        print(
+            f"{len(df)} day(s) flagged total ({int(counts.get('critical', 0))} critical z>=3.0, "
+            f"{int(counts.get('warning', 0))} warning z>=2.0) -- 7-day trailing mean/std per service,"
+        )
+        print("today's cost excluded from its own baseline. A simpler complement to the")
+        print("IsolationForest method below; the two can and do disagree on some days.")
+    print()
+
     print("-- ML: cost anomalies (top 10, IsolationForest) " + "-" * 9)
     df = ml_insights.detect_cost_anomalies()
     if df.empty:

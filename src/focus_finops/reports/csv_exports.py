@@ -23,6 +23,7 @@ def run(out_dir: Path) -> list[Path]:
         "cost_by_provider.csv": queries.cost_by_provider(),
         "cost_by_application.csv": queries.cost_by_application(),
         "cost_by_owner.csv": queries.cost_by_owner(),
+        "zscore_cost_anomalies.csv": ml_insights.detect_zscore_anomalies(),
         "ml_cost_anomalies.csv": ml_insights.detect_cost_anomalies(),
         "ml_spend_forecast.csv": ml_insights.forecast_spend(),
         "ml_commitment_recommendations.csv": ml_insights.recommend_commitments(),

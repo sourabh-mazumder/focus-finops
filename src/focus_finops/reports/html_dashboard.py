@@ -218,6 +218,7 @@ PAGE_TEMPLATE = """<!doctype html>
   }}
   .stat-tile.tone-accent   {{ border-top-color: var(--accent); }}
   .stat-tile.tone-good     {{ border-top-color: var(--status-good); }}
+  .stat-tile.tone-warning  {{ border-top-color: var(--status-warning); }}
   .stat-tile.tone-critical {{ border-top-color: var(--status-critical); }}
   .stat-label {{ font-size: 12px; color: var(--text-secondary); margin-bottom: 6px; }}
   .stat-value {{ font-size: 25px; font-weight: 650; letter-spacing: -0.01em; }}
@@ -276,6 +277,9 @@ PAGE_TEMPLATE = """<!doctype html>
   table.data-table td:last-child, table.data-table th:last-child {{ text-align: right; font-variant-numeric: tabular-nums; }}
   table.data-table tbody tr:nth-child(even) {{ background: var(--surface-2); }}
   table.data-table tbody tr:hover {{ background: var(--border); }}
+  .badge {{ font-weight: 650; font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.02em; }}
+  .badge.critical {{ color: var(--status-critical); }}
+  .badge.warning {{ color: var(--status-warning); }}
 
   footer.page-footer {{
     margin-top: 32px;
@@ -340,10 +344,15 @@ PAGE_TEMPLATE = """<!doctype html>
       <div class="stat-tile"><div class="stat-label">Line items</div><div class="stat-value" id="kpi-lineitems">-</div></div>
     </section>
 
-    <div class="section-divider"><span>ML-based signals at a glance</span></div>
+    <div class="section-divider"><span>Cost anomaly &amp; risk signals at a glance</span></div>
     <section class="stat-grid">
+      <div class="stat-tile" id="tile-zscore">
+        <div class="stat-label">Z-score anomalies (7-day rolling)</div>
+        <div class="stat-value" id="kpi-zscore">-</div>
+        <div class="stat-sub" id="kpi-zscore-sub"></div>
+      </div>
       <div class="stat-tile" id="tile-anomalies">
-        <div class="stat-label">Cost anomalies flagged</div>
+        <div class="stat-label">Cost anomalies flagged (IsolationForest)</div>
         <div class="stat-value" id="kpi-anomalies">-</div>
         <div class="stat-sub" id="kpi-anomalies-sub"></div>
       </div>
@@ -370,6 +379,14 @@ PAGE_TEMPLATE = """<!doctype html>
         <h3>Cost by provider</h3>
         <p class="chart-subtitle">Multi-cloud split, current filter selection</p>
         <div class="chart-canvas-wrap tall"><canvas id="providerChart"></canvas></div>
+      </div>
+    </section>
+
+    <section class="chart-grid full">
+      <div class="chart-card">
+        <h3>Cost by Account</h3>
+        <p class="chart-subtitle">Billed cost per account for the current filter selection (top 12 + Other) -- independent of the "Group by" selector above</p>
+        <div class="chart-canvas-wrap tall"><canvas id="accountChart"></canvas></div>
       </div>
     </section>
 
@@ -407,12 +424,28 @@ PAGE_TEMPLATE = """<!doctype html>
       </div>
     </section>
 
+    <div class="section-divider"><span>Statistical cost anomaly detection (Z-score)</span></div>
+    <section class="chart-card" id="zscoreSection">
+      <h3>Rolling z-score anomalies</h3>
+      <p class="chart-subtitle">Per service, each day's cost is compared to the trailing 7-day mean and standard
+        deviation of the days <em>before</em> it (never its own value). A z-score of +2.0 or higher is a warning; +3.0
+        or higher is critical -- the standard FinOps rule of thumb for a same-day spend spike. Only spikes are
+        flagged; an unusually quiet day is not treated as an issue. For the current filter selection.</p>
+      <div style="overflow-x:auto">
+        <table class="data-table">
+          <thead><tr><th>Provider</th><th>Account</th><th>Service</th><th>Day</th><th>Cost</th><th>7-Day Avg</th><th>7-Day StdDev</th><th>Z-Score</th><th>Severity</th></tr></thead>
+          <tbody id="zscoreBody"></tbody>
+        </table>
+      </div>
+    </section>
+
     <div class="section-divider"><span>Machine learning-based optimization insights</span></div>
     <section class="chart-card" id="mlSection">
       <h3>ML-identified cost optimization opportunities</h3>
       <p class="chart-subtitle">Anomaly detection (IsolationForest), spend forecasting (linear trend), and commitment
         candidates (KMeans clustering), for the current filter selection. These are decision-support signals for a
-        FinOps review, not automated actions.</p>
+        FinOps review, not automated actions. The z-score method above is a simpler, complementary technique -- the
+        two can and do flag different days.</p>
 
       <div class="ml-subsection">
         <h4>Cost anomalies</h4>
@@ -457,6 +490,7 @@ PAGE_TEMPLATE = """<!doctype html>
 <script>
 const CUBE = {cube_json};
 const COMMITMENT_ROWS = {commitment_json};
+const ZSCORE_ANOMALIES = {zscore_anomalies_json};
 const ML_ANOMALIES = {ml_anomalies_json};
 const ML_FORECAST = {ml_forecast_json};
 const ML_RECOMMENDATIONS = {ml_recommendations_json};
@@ -591,11 +625,20 @@ function renderKPIs(rows) {{
 
 function setTone(tileId, tone) {{
   const tile = document.getElementById(tileId);
-  tile.classList.remove('tone-good', 'tone-critical', 'tone-accent');
+  tile.classList.remove('tone-good', 'tone-warning', 'tone-critical', 'tone-accent');
   if (tone) tile.classList.add(tone);
 }}
 
 function renderMlKPIs() {{
+  const zAnomalies = filteredByDims(ZSCORE_ANOMALIES);
+  const zCritical = zAnomalies.filter(r => r.severity === 'critical').length;
+  const zWarning = zAnomalies.length - zCritical;
+  document.getElementById('kpi-zscore').textContent = zAnomalies.length.toLocaleString();
+  document.getElementById('kpi-zscore-sub').textContent = zAnomalies.length
+    ? `${{zCritical}} critical (z≥3.0), ${{zWarning}} warning (z≥2.0)`
+    : 'no spikes above the 7-day baseline';
+  setTone('tile-zscore', zCritical ? 'tone-critical' : (zWarning ? 'tone-warning' : 'tone-good'));
+
   const anomalies = filteredByDims(ML_ANOMALIES);
   document.getElementById('kpi-anomalies').textContent = anomalies.length.toLocaleString();
   if (anomalies.length) {{
@@ -629,7 +672,7 @@ function renderMlKPIs() {{
 }}
 
 // --- Charts ------------------------------------------------------------
-let breakdownChart, trendChart, providerChart;
+let breakdownChart, trendChart, providerChart, accountChart;
 
 function axisColors() {{
   const isDark = isDarkMode();
@@ -654,12 +697,8 @@ function tooltipStyle(colors) {{
   }};
 }}
 
-function renderBreakdownChart(rows) {{
-  const dim = state.groupBy;
-  document.getElementById('breakdownTitle').textContent = 'Cost by ' + DIM_LABELS[dim];
-  const pairs = topNWithOther(groupSum(rows, dim, 'billed_cost'), 12);
-  const colors = axisColors();
-  const cfg = {{
+function horizontalBarConfig(pairs, colors) {{
+  return {{
     type: 'bar',
     data: {{
       labels: pairs.map(p => p[0]),
@@ -682,8 +721,22 @@ function renderBreakdownChart(rows) {{
       }},
     }},
   }};
+}}
+
+function renderBreakdownChart(rows) {{
+  const dim = state.groupBy;
+  document.getElementById('breakdownTitle').textContent = 'Cost by ' + DIM_LABELS[dim];
+  const pairs = topNWithOther(groupSum(rows, dim, 'billed_cost'), 12);
+  const cfg = horizontalBarConfig(pairs, axisColors());
   if (breakdownChart) {{ breakdownChart.data = cfg.data; breakdownChart.options = cfg.options; breakdownChart.update(); }}
   else {{ breakdownChart = new Chart(document.getElementById('breakdownChart'), cfg); }}
+}}
+
+function renderAccountChart(rows) {{
+  const pairs = topNWithOther(groupSum(rows, 'account', 'billed_cost'), 12);
+  const cfg = horizontalBarConfig(pairs, axisColors());
+  if (accountChart) {{ accountChart.data = cfg.data; accountChart.options = cfg.options; accountChart.update(); }}
+  else {{ accountChart = new Chart(document.getElementById('accountChart'), cfg); }}
 }}
 
 function renderTrendChart(rows) {{
@@ -795,6 +848,23 @@ function renderCommitmentTable(rows) {{
   }}).join('');
 }}
 
+function renderZscoreTable() {{
+  const rows = filteredByDims(ZSCORE_ANOMALIES).slice(0, 15);
+  const tbody = document.getElementById('zscoreBody');
+  if (!rows.length) {{
+    tbody.innerHTML = '<tr><td colspan="9" class="empty">No z-score anomalies for the current filter selection.</td></tr>';
+    return;
+  }}
+  tbody.innerHTML = rows.map(r => {{
+    const badgeClass = r.severity === 'critical' ? 'critical' : 'warning';
+    const badgeLabel = r.severity === 'critical' ? 'Critical' : 'Warning';
+    return '<tr><td>' + esc(r.provider) + '</td><td>' + esc(r.account) + '</td><td>' + esc(r.service_name) +
+           '</td><td>' + esc(r.day) + '</td><td>' + moneyFull(r.cost) + '</td><td>' + moneyFull(r.rolling_mean) +
+           '</td><td>' + moneyFull(r.rolling_std) + '</td><td>+' + r.zscore.toFixed(2) +
+           '</td><td><span class="badge ' + badgeClass + '">' + badgeLabel + '</span></td></tr>';
+  }}).join('');
+}}
+
 function renderAnomalyTable() {{
   const rows = filteredByDims(ML_ANOMALIES).slice(0, 15);
   const tbody = document.getElementById('anomalyBody');
@@ -848,10 +918,12 @@ function render() {{
   renderKPIs(rows);
   renderMlKPIs();
   renderBreakdownChart(rows);
+  renderAccountChart(rows);
   renderTrendChart(rows);
   renderProviderChart(rows);
   renderTopResources(rows);
   renderCommitmentTable(filteredCommitmentRows());
+  renderZscoreTable();
   renderAnomalyTable();
   renderForecastTable();
   renderRecommendTable();
@@ -895,6 +967,9 @@ def run(out_path: Path) -> Path:
     commitment_df = queries.commitment_utilization().round(2)
     commitment_json = commitment_df.to_json(orient="records").replace("</", "<\\/")
 
+    zscore_df = ml_insights.detect_zscore_anomalies()
+    zscore_json = zscore_df.to_json(orient="records").replace("</", "<\\/")
+
     anomalies_df = ml_insights.detect_cost_anomalies()
     anomalies_json = anomalies_df.to_json(orient="records").replace("</", "<\\/")
 
@@ -911,6 +986,7 @@ def run(out_path: Path) -> Path:
         period_end=str(totals["period_end"])[:10],
         cube_json=cube_json,
         commitment_json=commitment_json,
+        zscore_anomalies_json=zscore_json,
         ml_anomalies_json=anomalies_json,
         ml_forecast_json=forecast_json,
         ml_recommendations_json=recommendations_json,
