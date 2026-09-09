@@ -52,21 +52,31 @@ from it.
 ## Requirements
 
 - Python 3.11+
-- A PostgreSQL server, with the **`psql` client on your PATH**
+- A PostgreSQL server
+- The **`psql` client on your PATH**, but only for the one-time admin
+  bootstrap (`scripts/setup_db.sh` / `setup_db.ps1` create the
+  `focus_app` role/database as the Postgres superuser) -- the application
+  itself never shells out to `psql`.
 - Python packages: `pandas`, `click`, `python-dotenv`, `tabulate`, `numpy`,
-  `scikit-learn`, `prophet` (listed in `pyproject.toml`)
+  `scikit-learn`, `prophet`, `psycopg2-binary`, `SQLAlchemy` (listed in
+  `pyproject.toml`)
 
-### Why `psql` instead of psycopg2 / SQLAlchemy?
+### Database access: a pooled SQLAlchemy engine
 
-This project talks to Postgres by shelling out to the `psql` command-line
-client (see `src/focus_finops/db.py`) rather than using a compiled Python
-driver. That keeps the dependency footprint to pure-Python packages only --
-handy in locked-down environments where installing a compiled driver isn't
-an option, and it's how this project was built and tested. If you'd rather
-use `psycopg2`/`SQLAlchemy` in your own environment, they're listed as an
-optional `driver` extra in `pyproject.toml` -- the SQL itself
-(`schema.sql`, `reports/queries.py`) is plain, driver-agnostic SQL, so
-swapping `db.py` for a native-driver version is a self-contained change.
+`src/focus_finops/db.py` talks to Postgres through a process-wide, pooled
+SQLAlchemy `Engine` over `psycopg2` (`pool_size=5`, `max_overflow=10`,
+`pool_pre_ping=True` to transparently replace a connection Postgres has
+dropped). Every report/CLI command reuses the same pool rather than opening
+a fresh connection per query.
+
+This project originally shelled out to the `psql` CLI per query instead --
+zero compiled dependencies, handy for a locked-down environment, but with
+no connection pooling, no concurrency control, and errors surfaced as a
+parsed subprocess exit code rather than a typed exception. `db.py`'s public
+functions (`query_df`, `execute`, `run_sql_file`, `copy_csv_into`,
+`DbError`) kept the same signatures across that swap, so nothing in
+`reports/` or the CLI needed to change -- the SQL itself was always plain,
+driver-agnostic SQL.
 
 ## Quickstart
 

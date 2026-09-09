@@ -26,7 +26,7 @@ class DbConfig:
 
     @property
     def conninfo_uri(self) -> str:
-        """A libpq connection URI, usable directly as psql's dbname argument."""
+        """A plain libpq connection URI (e.g. for `psql` or other tools)."""
         explicit = os.getenv("DATABASE_URL")
         if explicit:
             return explicit
@@ -34,6 +34,22 @@ class DbConfig:
             f"postgresql://{self.user}:{self.password}"
             f"@{self.host}:{self.port}/{self.dbname}"
         )
+
+    @property
+    def sqlalchemy_url(self) -> str:
+        """The connection URL for SQLAlchemy's psycopg2 dialect -- same
+        target as `conninfo_uri`, with the driver named explicitly rather
+        than relying on `postgresql://` resolving to whichever DBAPI
+        happens to be installed.
+        """
+        uri = self.conninfo_uri
+        if uri.startswith("postgresql+"):
+            return uri
+        if uri.startswith("postgresql://"):
+            return "postgresql+psycopg2://" + uri[len("postgresql://"):]
+        if uri.startswith("postgres://"):
+            return "postgresql+psycopg2://" + uri[len("postgres://"):]
+        return uri
 
 
 def get_config() -> DbConfig:
