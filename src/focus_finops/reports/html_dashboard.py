@@ -46,6 +46,8 @@ PAGE_TEMPLATE = """<!doctype html>
     --status-serious:   #ec835a;
     --status-critical:  #d03b3b;
     --shadow-card: 0 1px 2px rgba(11,11,11,0.04), 0 6px 16px rgba(11,11,11,0.05);
+    --header-tint:       #eaf2fc;
+    --header-tint-hover: #dceafa;
   }}
   @media (prefers-color-scheme: dark) {{
     .viz-root {{
@@ -65,6 +67,8 @@ PAGE_TEMPLATE = """<!doctype html>
       --status-serious:   #ec835a;
       --status-critical:  #e66767;
       --shadow-card: 0 1px 2px rgba(0,0,0,0.35);
+      --header-tint:       #16253a;
+      --header-tint-hover: #1c2f4a;
     }}
   }}
 
@@ -84,7 +88,7 @@ PAGE_TEMPLATE = """<!doctype html>
     text-align: center;
     padding: 22px 24px 22px;
     margin-bottom: 20px;
-    background: var(--surface-1);
+    background: var(--header-tint);
     border: 1px solid var(--border);
     border-radius: 12px;
     box-shadow: var(--shadow-card);
@@ -136,7 +140,7 @@ PAGE_TEMPLATE = """<!doctype html>
     cursor: pointer;
     list-style: none;
     padding: 15px 20px;
-    background: var(--surface-1);
+    background: var(--header-tint);
     border-left: 3px solid var(--accent);
     border-bottom: 1px solid var(--border);
     font-size: 13.5px;
@@ -147,7 +151,7 @@ PAGE_TEMPLATE = """<!doctype html>
     transition: background 120ms ease;
   }}
   summary.accordion-summary::-webkit-details-marker {{ display: none; }}
-  summary.accordion-summary:hover {{ background: var(--surface-2); }}
+  summary.accordion-summary:hover {{ background: var(--header-tint-hover); }}
   details.accordion:not([open]) > summary.accordion-summary {{ border-bottom-color: transparent; }}
   .accordion-chevron {{
     display: inline-flex;
