@@ -1,6 +1,7 @@
 """Prints a plain-text cost summary to the terminal."""
 from __future__ import annotations
 
+import pandas as pd
 from tabulate import tabulate
 
 from . import queries
@@ -73,3 +74,15 @@ def run() -> None:
     df = queries.cost_trend_monthly()
     df["billed_cost"] = df["billed_cost"].map(_money)
     print(tabulate(df, headers="keys", tablefmt="simple", showindex=False))
+    print()
+
+    print("-- Commitment / reservation coverage " + "-" * 21)
+    df = queries.commitment_utilization_summary()
+    if df.empty:
+        print("(no commitment-covered usage in this data)")
+    else:
+        df["coverage_pct"] = df["coverage_pct"].map(lambda v: f"{float(v):.1f}%" if pd.notna(v) else "-")
+        df["savings"] = df["savings"].map(_money)
+        print(tabulate(df, headers="keys", tablefmt="simple", showindex=False))
+        print("Coverage = share of usage billed at the committed rate, not used-vs-purchased")
+        print("utilization -- FOCUS usage rows don't carry the commitment's purchased quantity.")

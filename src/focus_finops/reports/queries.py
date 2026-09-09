@@ -172,6 +172,65 @@ def savings_by_commitment_type() -> pd.DataFrame:
     """)
 
 
+def commitment_utilization() -> pd.DataFrame:
+    """Per-commitment coverage: how much of each committed resource's usage
+    was actually charged at the discounted commitment rate (Savings Plan /
+    Reserved Instance / Committed Use Discount) vs. at the on-demand rate.
+
+    Caveat: FOCUS's per-charge CommitmentDiscountQuantity records usage
+    *applied against* a commitment on each usage row -- there's no
+    "purchased/entitled quantity" column in the Cost and Usage dataset (that
+    lives in FOCUS's separate commitment-discount purchase records, which
+    this project doesn't ingest). So `coverage_pct` here means "share of
+    this resource's usage billed at the committed rate", not true
+    used-vs-purchased utilization -- a resource can show 100% coverage and
+    still sit on an underused (or oversized) commitment purchase.
+    """
+    return db.query_df(f"""
+        SELECT
+            service_provider_name                                            AS provider,
+            COALESCE(sub_account_name, sub_account_id, billing_account_name) AS account,
+            COALESCE(tags->>'Application', '(untagged)')                    AS application,
+            COALESCE(tags->>'Owner', '(untagged)')                          AS owner,
+            commitment_discount_type              AS commitment_type,
+            commitment_discount_id                AS commitment_id,
+            COALESCE(resource_name, resource_id)  AS resource,
+            commitment_discount_unit              AS unit,
+            SUM(consumed_quantity)                AS consumed_quantity,
+            SUM(commitment_discount_quantity)     AS covered_quantity,
+            ROUND(100.0 * SUM(commitment_discount_quantity)
+                  / NULLIF(SUM(consumed_quantity), 0), 1)   AS coverage_pct,
+            SUM(list_cost)      AS list_cost,
+            SUM(effective_cost) AS effective_cost,
+            SUM(list_cost) - SUM(effective_cost) AS savings
+        FROM {TABLE}
+        WHERE commitment_discount_id IS NOT NULL
+        GROUP BY 1, 2, 3, 4, 5, 6, 7, 8
+        ORDER BY coverage_pct ASC NULLS LAST, provider, commitment_type;
+    """)
+
+
+def commitment_utilization_summary() -> pd.DataFrame:
+    """Rollup of commitment coverage by provider + commitment type -- see
+    `commitment_utilization()` for what "coverage" does and doesn't mean.
+    """
+    return db.query_df(f"""
+        SELECT
+            service_provider_name    AS provider,
+            commitment_discount_type AS commitment_type,
+            COUNT(DISTINCT commitment_discount_id) AS commitments,
+            SUM(consumed_quantity)                 AS consumed_quantity,
+            SUM(commitment_discount_quantity)      AS covered_quantity,
+            ROUND(100.0 * SUM(commitment_discount_quantity)
+                  / NULLIF(SUM(consumed_quantity), 0), 1)   AS coverage_pct,
+            SUM(list_cost) - SUM(effective_cost) AS savings
+        FROM {TABLE}
+        WHERE commitment_discount_id IS NOT NULL
+        GROUP BY 1, 2
+        ORDER BY provider, commitment_type;
+    """)
+
+
 def cost_by_charge_category() -> pd.DataFrame:
     return db.query_df(f"""
         SELECT charge_category,

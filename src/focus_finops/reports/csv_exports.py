@@ -17,6 +17,8 @@ def run(out_dir: Path) -> list[Path]:
         "cost_trend_monthly.csv": queries.cost_trend_monthly(),
         "top_resources.csv": queries.top_resources(25),
         "savings_by_commitment_type.csv": queries.savings_by_commitment_type(),
+        "commitment_utilization.csv": queries.commitment_utilization(),
+        "commitment_utilization_summary.csv": queries.commitment_utilization_summary(),
         "cost_by_charge_category.csv": queries.cost_by_charge_category(),
         "cost_by_provider.csv": queries.cost_by_provider(),
         "cost_by_application.csv": queries.cost_by_application(),
