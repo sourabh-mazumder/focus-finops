@@ -41,6 +41,11 @@ PAGE_TEMPLATE = """<!doctype html>
     --border:         rgba(11,11,11,0.10);
     --accent:         #2a78d6;
     --good:           #006300;
+    --status-good:      #0ca30c;
+    --status-warning:   #fab219;
+    --status-serious:   #ec835a;
+    --status-critical:  #d03b3b;
+    --shadow-card: 0 1px 2px rgba(11,11,11,0.04), 0 6px 16px rgba(11,11,11,0.05);
   }}
   @media (prefers-color-scheme: dark) {{
     .viz-root {{
@@ -55,6 +60,11 @@ PAGE_TEMPLATE = """<!doctype html>
       --border:         rgba(255,255,255,0.10);
       --accent:         #3987e5;
       --good:           #0ca30c;
+      --status-good:      #0ca30c;
+      --status-warning:   #fab219;
+      --status-serious:   #ec835a;
+      --status-critical:  #e66767;
+      --shadow-card: 0 1px 2px rgba(0,0,0,0.35);
     }}
   }}
 
@@ -65,21 +75,50 @@ PAGE_TEMPLATE = """<!doctype html>
     background: var(--page-plane);
     color: var(--text-primary);
     padding: 32px 24px 64px;
+    -webkit-font-smoothing: antialiased;
   }}
   .page {{ max-width: 1180px; margin: 0 auto; }}
   header.study-header {{
+    position: relative;
+    overflow: hidden;
     text-align: center;
-    padding: 18px 20px 20px;
+    padding: 22px 24px 22px;
     margin-bottom: 20px;
     background: var(--surface-1);
     border: 1px solid var(--border);
-    border-radius: 10px;
+    border-radius: 12px;
+    box-shadow: var(--shadow-card);
   }}
-  header.study-header h1 {{ font-size: 18px; font-weight: 600; line-height: 1.4; margin: 0 0 6px; }}
+  header.study-header::before {{
+    content: '';
+    position: absolute; top: 0; left: 0; right: 0; height: 4px;
+    background: linear-gradient(90deg, #2a78d6, #1baf7a, #eda100, #e34948);
+  }}
+  header.study-header .eyebrow {{
+    display: block;
+    font-size: 10.5px; font-weight: 700; letter-spacing: 0.12em;
+    text-transform: uppercase; color: var(--text-muted);
+    margin: 4px 0 10px;
+  }}
+  header.study-header h1 {{ font-size: 18px; font-weight: 600; line-height: 1.45; margin: 0 0 8px; }}
   header.study-header p {{ margin: 0; color: var(--text-secondary); font-size: 12.5px; }}
   header.page-header {{ margin-bottom: 20px; }}
-  header.page-header h1 {{ font-size: 22px; margin: 0 0 4px; }}
+  header.page-header h1 {{ font-size: 22px; font-weight: 700; letter-spacing: -0.01em; margin: 0 0 4px; }}
   header.page-header p {{ margin: 0; color: var(--text-secondary); font-size: 13px; }}
+
+  .section-divider {{
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 30px 0 14px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+  }}
+  .section-divider:first-of-type {{ margin-top: 0; }}
+  .section-divider::after {{ content: ''; flex: 1; height: 1px; background: var(--gridline); }}
 
   .filter-bar {{
     display: flex;
@@ -91,6 +130,7 @@ PAGE_TEMPLATE = """<!doctype html>
     border-radius: 10px;
     padding: 12px 14px;
     margin-bottom: 20px;
+    box-shadow: var(--shadow-card);
   }}
   .filter-group {{ position: relative; }}
   .filter-group summary {{
@@ -165,17 +205,25 @@ PAGE_TEMPLATE = """<!doctype html>
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
     gap: 12px;
-    margin-bottom: 20px;
+    margin-bottom: 8px;
   }}
   .stat-tile {{
     background: var(--surface-1);
     border: 1px solid var(--border);
+    border-top: 3px solid var(--gridline);
     border-radius: 10px;
     padding: 16px 18px;
+    box-shadow: var(--shadow-card);
+    transition: transform 120ms ease, box-shadow 120ms ease;
   }}
+  .stat-tile.tone-accent   {{ border-top-color: var(--accent); }}
+  .stat-tile.tone-good     {{ border-top-color: var(--status-good); }}
+  .stat-tile.tone-critical {{ border-top-color: var(--status-critical); }}
   .stat-label {{ font-size: 12px; color: var(--text-secondary); margin-bottom: 6px; }}
-  .stat-value {{ font-size: 24px; font-weight: 600; }}
+  .stat-value {{ font-size: 25px; font-weight: 650; letter-spacing: -0.01em; }}
   .stat-sub {{ font-size: 12px; color: var(--text-muted); margin-top: 4px; }}
+  .stat-sub.tone-good     {{ color: var(--status-good); }}
+  .stat-sub.tone-critical {{ color: var(--status-critical); font-weight: 600; }}
 
   .chart-grid {{
     display: grid;
@@ -185,17 +233,24 @@ PAGE_TEMPLATE = """<!doctype html>
     align-items: stretch;
   }}
   .chart-grid.full {{ grid-template-columns: 1fr; }}
+  .chart-grid > .chart-card {{ margin-bottom: 0; }}
   @media (max-width: 860px) {{ .chart-grid {{ grid-template-columns: 1fr; }} }}
 
   .chart-card {{
     background: var(--surface-1);
     border: 1px solid var(--border);
     border-radius: 10px;
-    padding: 16px 18px 12px;
+    padding: 16px 18px 14px;
     min-width: 0;
+    box-shadow: var(--shadow-card);
+    margin-bottom: 16px;
   }}
-  .chart-card h3 {{ font-size: 14px; margin: 0 0 2px; }}
-  .chart-subtitle {{ font-size: 12px; color: var(--text-secondary); margin: 0 0 10px; }}
+  .chart-card h3 {{ font-size: 14px; font-weight: 650; margin: 0 0 2px; }}
+  .chart-subtitle {{ font-size: 12px; color: var(--text-secondary); margin: 0 0 10px; line-height: 1.5; }}
+  .ml-subsection {{ margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--gridline); }}
+  .ml-subsection:first-of-type {{ margin-top: 14px; padding-top: 0; border-top: none; }}
+  .ml-subsection h4 {{ font-size: 13px; font-weight: 650; margin: 0 0 4px; }}
+  .ml-subsection .chart-subtitle {{ margin: 0 0 8px; }}
   .empty {{ color: var(--text-muted); font-size: 13px; padding: 20px 0; }}
   .chart-canvas-wrap {{ position: relative; width: 100%; height: 320px; }}
   .chart-canvas-wrap.tall {{ height: 380px; }}
@@ -208,19 +263,34 @@ PAGE_TEMPLATE = """<!doctype html>
   }}
   table.data-table th, table.data-table td {{
     text-align: left;
-    padding: 8px 10px;
+    padding: 9px 10px;
     border-bottom: 1px solid var(--gridline);
   }}
-  table.data-table th {{ color: var(--text-secondary); font-weight: 600; font-size: 12px; }}
+  table.data-table th {{
+    color: var(--text-secondary);
+    font-weight: 650;
+    font-size: 11px;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+  }}
   table.data-table td:last-child, table.data-table th:last-child {{ text-align: right; font-variant-numeric: tabular-nums; }}
+  table.data-table tbody tr:nth-child(even) {{ background: var(--surface-2); }}
+  table.data-table tbody tr:hover {{ background: var(--border); }}
 
-  footer.page-footer {{ margin-top: 32px; font-size: 11px; color: var(--text-muted); }}
+  footer.page-footer {{
+    margin-top: 32px;
+    padding-top: 16px;
+    border-top: 1px solid var(--gridline);
+    font-size: 11px;
+    color: var(--text-muted);
+  }}
 </style>
 </head>
 <body>
 <div class="viz-root">
   <div class="page">
     <header class="study-header">
+      <span class="eyebrow">MBA Capstone Project &middot; FinOps Research</span>
       <h1>A Study on the Development of a FinOps Framework to Optimize and Curb Runaway<br/>
         Cloud Computing (AWS / Azure / GCP) Expenditures</h1>
       <p>Supporting dashboard &mdash; FOCUS-based multi-cloud cost &amp; usage analysis</p>
@@ -259,16 +329,37 @@ PAGE_TEMPLATE = """<!doctype html>
       </div>
     </div>
 
+    <div class="section-divider"><span>Cost overview</span></div>
     <section class="stat-grid">
-      <div class="stat-tile"><div class="stat-label">Total Billed Cost</div><div class="stat-value" id="kpi-billed">-</div></div>
+      <div class="stat-tile tone-accent"><div class="stat-label">Total Billed Cost</div><div class="stat-value" id="kpi-billed">-</div></div>
       <div class="stat-tile"><div class="stat-label">Total Effective Cost</div><div class="stat-value" id="kpi-effective">-</div></div>
-      <div class="stat-tile"><div class="stat-label">Savings vs List Price</div><div class="stat-value" id="kpi-savings">-</div><div class="stat-sub" id="kpi-savings-pct"></div></div>
+      <div class="stat-tile tone-good"><div class="stat-label">Savings vs List Price</div><div class="stat-value" id="kpi-savings">-</div><div class="stat-sub" id="kpi-savings-pct"></div></div>
       <div class="stat-tile"><div class="stat-label">Providers</div><div class="stat-value" id="kpi-providers">-</div></div>
       <div class="stat-tile"><div class="stat-label">Accounts</div><div class="stat-value" id="kpi-accounts">-</div></div>
       <div class="stat-tile"><div class="stat-label">Applications</div><div class="stat-value" id="kpi-applications">-</div></div>
       <div class="stat-tile"><div class="stat-label">Line items</div><div class="stat-value" id="kpi-lineitems">-</div></div>
     </section>
 
+    <div class="section-divider"><span>ML-based signals at a glance</span></div>
+    <section class="stat-grid">
+      <div class="stat-tile" id="tile-anomalies">
+        <div class="stat-label">Cost anomalies flagged</div>
+        <div class="stat-value" id="kpi-anomalies">-</div>
+        <div class="stat-sub" id="kpi-anomalies-sub"></div>
+      </div>
+      <div class="stat-tile" id="tile-overrun">
+        <div class="stat-label">Accounts at overrun risk</div>
+        <div class="stat-value" id="kpi-overrun">-</div>
+        <div class="stat-sub" id="kpi-overrun-sub"></div>
+      </div>
+      <div class="stat-tile tone-accent" id="tile-candidates">
+        <div class="stat-label">Commitment candidates found</div>
+        <div class="stat-value" id="kpi-candidates">-</div>
+        <div class="stat-sub" id="kpi-candidates-sub"></div>
+      </div>
+    </section>
+
+    <div class="section-divider"><span>Cost breakdown &amp; trends</span></div>
     <section class="chart-grid">
       <div class="chart-card">
         <h3 id="breakdownTitle">Cost by Service Category</h3>
@@ -291,7 +382,7 @@ PAGE_TEMPLATE = """<!doctype html>
     </section>
 
     <section class="chart-card">
-      <h3>Top resources by billed cost</h3>
+      <h3>Top Resources by Billed Cost</h3>
       <p class="chart-subtitle">Highest-spend individual resources for the current filter selection (excludes account-level charges like tax/support)</p>
       <div style="overflow-x:auto">
         <table class="data-table">
@@ -301,6 +392,7 @@ PAGE_TEMPLATE = """<!doctype html>
       </div>
     </section>
 
+    <div class="section-divider"><span>Commitment &amp; reservation analysis</span></div>
     <section class="chart-card" id="commitmentSection">
       <h3>Commitment / reservation coverage</h3>
       <p class="chart-subtitle">Share of each committed resource's usage billed at the discounted commitment rate
@@ -315,37 +407,44 @@ PAGE_TEMPLATE = """<!doctype html>
       </div>
     </section>
 
+    <div class="section-divider"><span>Machine learning-based optimization insights</span></div>
     <section class="chart-card" id="mlSection">
       <h3>ML-identified cost optimization opportunities</h3>
       <p class="chart-subtitle">Anomaly detection (IsolationForest), spend forecasting (linear trend), and commitment
         candidates (KMeans clustering), for the current filter selection. These are decision-support signals for a
         FinOps review, not automated actions.</p>
 
-      <h4 style="font-size:13px;margin:14px 0 6px;">Cost anomalies</h4>
-      <p class="chart-subtitle" style="margin:0 0 8px;">Daily cost outliers per resource, judged against that resource's own history</p>
-      <div style="overflow-x:auto">
-        <table class="data-table">
-          <thead><tr><th>Provider</th><th>Account</th><th>Service</th><th>Resource</th><th>Day</th><th>Cost</th><th>Baseline</th><th>vs. Baseline</th></tr></thead>
-          <tbody id="anomalyBody"></tbody>
-        </table>
+      <div class="ml-subsection">
+        <h4>Cost anomalies</h4>
+        <p class="chart-subtitle">Daily cost outliers per resource, judged against that resource's own history</p>
+        <div style="overflow-x:auto">
+          <table class="data-table">
+            <thead><tr><th>Provider</th><th>Account</th><th>Service</th><th>Resource</th><th>Day</th><th>Cost</th><th>Baseline</th><th>vs. Baseline</th></tr></thead>
+            <tbody id="anomalyBody"></tbody>
+          </table>
+        </div>
       </div>
 
-      <h4 style="font-size:13px;margin:18px 0 6px;">Spend forecast / overrun risk</h4>
-      <p class="chart-subtitle" style="margin:0 0 8px;">Next-month cost projected from each combination's own monthly trend</p>
-      <div style="overflow-x:auto">
-        <table class="data-table">
-          <thead><tr><th>Provider</th><th>Account</th><th>Application</th><th>Service Category</th><th>Last Month</th><th>Forecast</th><th>Change</th></tr></thead>
-          <tbody id="forecastBody"></tbody>
-        </table>
+      <div class="ml-subsection">
+        <h4>Spend forecast / overrun risk</h4>
+        <p class="chart-subtitle">Next-month cost projected from each combination's own monthly trend</p>
+        <div style="overflow-x:auto">
+          <table class="data-table">
+            <thead><tr><th>Provider</th><th>Account</th><th>Application</th><th>Service Category</th><th>Last Month</th><th>Forecast</th><th>Change</th></tr></thead>
+            <tbody id="forecastBody"></tbody>
+          </table>
+        </div>
       </div>
 
-      <h4 style="font-size:13px;margin:18px 0 6px;">Commitment candidates</h4>
-      <p class="chart-subtitle" style="margin:0 0 8px;">Uncommitted Compute/Database resources with steady, high-volume usage -- good Savings Plan/RI/CUD fits</p>
-      <div style="overflow-x:auto">
-        <table class="data-table">
-          <thead><tr><th>Provider</th><th>Account</th><th>Service</th><th>Resource</th><th>Avg Daily Cost</th><th>Volatility</th><th>Total Cost</th></tr></thead>
-          <tbody id="recommendBody"></tbody>
-        </table>
+      <div class="ml-subsection">
+        <h4>Commitment candidates</h4>
+        <p class="chart-subtitle">Uncommitted Compute/Database resources with steady, high-volume usage -- good Savings Plan/RI/CUD fits</p>
+        <div style="overflow-x:auto">
+          <table class="data-table">
+            <thead><tr><th>Provider</th><th>Account</th><th>Service</th><th>Resource</th><th>Avg Daily Cost</th><th>Volatility</th><th>Total Cost</th></tr></thead>
+            <tbody id="recommendBody"></tbody>
+          </table>
+        </div>
       </div>
     </section>
 
@@ -362,8 +461,17 @@ const ML_ANOMALIES = {ml_anomalies_json};
 const ML_FORECAST = {ml_forecast_json};
 const ML_RECOMMENDATIONS = {ml_recommendations_json};
 
-const PALETTE = ['#2a78d6','#eb6834','#2fa84f','#a24fd6','#d6b02a','#d6415f','#2ac2c2','#8a6d3b','#8f8f8f','#c74fc2'];
-function paletteColor(i) {{ return PALETTE[i % PALETTE.length]; }}
+// Validated categorical palette (CVD-safe in fixed order; see the dataviz
+// skill's palette reference) -- light/dark variants of the same 8 hues.
+const PALETTE_LIGHT = ['#2a78d6','#eb6834','#1baf7a','#eda100','#e87ba4','#008300','#4a3aa7','#e34948'];
+const PALETTE_DARK  = ['#3987e5','#d95926','#199e70','#c98500','#d55181','#008300','#9085e9','#e66767'];
+function isDarkMode() {{
+  return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+}}
+function paletteColor(i) {{
+  const p = isDarkMode() ? PALETTE_DARK : PALETTE_LIGHT;
+  return p[i % p.length];
+}}
 
 const DIM_LABELS = {{
   provider: 'Provider', account: 'Account', application: 'Application', owner: 'Owner',
@@ -481,14 +589,68 @@ function renderKPIs(rows) {{
   document.getElementById('kpi-lineitems').textContent = lineItems.toLocaleString();
 }}
 
+function setTone(tileId, tone) {{
+  const tile = document.getElementById(tileId);
+  tile.classList.remove('tone-good', 'tone-critical', 'tone-accent');
+  if (tone) tile.classList.add(tone);
+}}
+
+function renderMlKPIs() {{
+  const anomalies = filteredByDims(ML_ANOMALIES);
+  document.getElementById('kpi-anomalies').textContent = anomalies.length.toLocaleString();
+  if (anomalies.length) {{
+    document.getElementById('kpi-anomalies-sub').textContent = 'review recommended';
+    document.getElementById('kpi-anomalies-sub').className = 'stat-sub tone-critical';
+    setTone('tile-anomalies', 'tone-critical');
+  }} else {{
+    document.getElementById('kpi-anomalies-sub').textContent = 'none detected';
+    document.getElementById('kpi-anomalies-sub').className = 'stat-sub tone-good';
+    setTone('tile-anomalies', 'tone-good');
+  }}
+
+  const forecast = filteredByDims(ML_FORECAST);
+  const riskyAccounts = new Set(forecast.filter(r => r.overrun_risk).map(r => r.provider + '||' + r.account));
+  document.getElementById('kpi-overrun').textContent = riskyAccounts.size.toLocaleString();
+  if (riskyAccounts.size) {{
+    document.getElementById('kpi-overrun-sub').textContent = 'forecast +15% or more next month';
+    document.getElementById('kpi-overrun-sub').className = 'stat-sub tone-critical';
+    setTone('tile-overrun', 'tone-critical');
+  }} else {{
+    document.getElementById('kpi-overrun-sub').textContent = 'no overrun risk detected';
+    document.getElementById('kpi-overrun-sub').className = 'stat-sub tone-good';
+    setTone('tile-overrun', 'tone-good');
+  }}
+
+  const candidates = filteredByDims(ML_RECOMMENDATIONS).filter(r => r.recommended);
+  document.getElementById('kpi-candidates').textContent = candidates.length.toLocaleString();
+  document.getElementById('kpi-candidates-sub').textContent = candidates.length
+    ? 'steady, high-volume resources'
+    : 'none for this selection';
+}}
+
 // --- Charts ------------------------------------------------------------
 let breakdownChart, trendChart, providerChart;
 
 function axisColors() {{
-  const isDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+  const isDark = isDarkMode();
   return {{
     text: isDark ? '#c3c2b7' : '#52514e',
     grid: isDark ? '#2c2c2a' : '#e1e0d9',
+    surface: isDark ? '#1a1a19' : '#fcfcfb',
+    surface2: isDark ? '#232322' : '#f2f1ed',
+  }};
+}}
+
+function tooltipStyle(colors) {{
+  return {{
+    backgroundColor: colors.surface2,
+    titleColor: colors.text,
+    bodyColor: colors.text,
+    borderColor: colors.grid,
+    borderWidth: 1,
+    cornerRadius: 6,
+    padding: 10,
+    boxPadding: 4,
   }};
 }}
 
@@ -501,19 +663,22 @@ function renderBreakdownChart(rows) {{
     type: 'bar',
     data: {{
       labels: pairs.map(p => p[0]),
-      datasets: [{{ label: 'Billed Cost', data: pairs.map(p => p[1]),
-                    backgroundColor: pairs.map((_, i) => paletteColor(i)) }}],
+      datasets: [{{
+        label: 'Billed Cost', data: pairs.map(p => p[1]),
+        backgroundColor: pairs.map((_, i) => paletteColor(i)),
+        borderRadius: 4, borderSkipped: false, maxBarThickness: 22,
+      }}],
     }},
     options: {{
       indexAxis: 'y',
       responsive: true, maintainAspectRatio: false,
       plugins: {{
         legend: {{ display: false }},
-        tooltip: {{ callbacks: {{ label: (c) => moneyFull(c.parsed.x) }} }},
+        tooltip: {{ ...tooltipStyle(colors), callbacks: {{ label: (c) => moneyFull(c.parsed.x) }} }},
       }},
       scales: {{
-        x: {{ ticks: {{ color: colors.text, callback: (v) => money(v) }}, grid: {{ color: colors.grid }} }},
-        y: {{ ticks: {{ color: colors.text }}, grid: {{ display: false }} }},
+        x: {{ ticks: {{ color: colors.text, callback: (v) => money(v) }}, grid: {{ color: colors.grid }}, border: {{ color: colors.grid }} }},
+        y: {{ ticks: {{ color: colors.text }}, grid: {{ display: false }}, border: {{ color: colors.grid }} }},
       }},
     }},
   }};
@@ -540,10 +705,13 @@ function renderTrendChart(rows) {{
   const colors = axisColors();
   const datasets = orderedKeys.map((label, i) => {{
     const mm = seriesMap.get(label) || new Map();
+    const c = paletteColor(i);
     return {{
       label, data: months.map(mo => mm.get(mo) || 0),
-      borderColor: paletteColor(i), backgroundColor: paletteColor(i),
-      tension: 0.25, fill: false, pointRadius: 3,
+      borderColor: c, backgroundColor: c,
+      borderWidth: 2, tension: 0.25, fill: false,
+      pointRadius: 4, pointHoverRadius: 6,
+      pointBackgroundColor: c, pointBorderColor: colors.surface, pointBorderWidth: 2,
     }};
   }});
 
@@ -552,13 +720,14 @@ function renderTrendChart(rows) {{
     data: {{ labels: months, datasets }},
     options: {{
       responsive: true, maintainAspectRatio: false,
+      interaction: {{ mode: 'nearest', intersect: false }},
       plugins: {{
-        legend: {{ labels: {{ color: colors.text }} }},
-        tooltip: {{ callbacks: {{ label: (c) => c.dataset.label + ': ' + moneyFull(c.parsed.y) }} }},
+        legend: {{ labels: {{ color: colors.text, usePointStyle: true, pointStyle: 'circle', boxWidth: 8, boxHeight: 8, padding: 16 }} }},
+        tooltip: {{ ...tooltipStyle(colors), callbacks: {{ label: (c) => c.dataset.label + ': ' + moneyFull(c.parsed.y) }} }},
       }},
       scales: {{
-        x: {{ ticks: {{ color: colors.text }}, grid: {{ color: colors.grid }} }},
-        y: {{ ticks: {{ color: colors.text, callback: (v) => money(v) }}, grid: {{ color: colors.grid }} }},
+        x: {{ ticks: {{ color: colors.text }}, grid: {{ color: colors.grid }}, border: {{ color: colors.grid }} }},
+        y: {{ ticks: {{ color: colors.text, callback: (v) => money(v) }}, grid: {{ color: colors.grid }}, border: {{ color: colors.grid }} }},
       }},
     }},
   }};
@@ -573,13 +742,17 @@ function renderProviderChart(rows) {{
     type: 'doughnut',
     data: {{
       labels: pairs.map(p => p[0]),
-      datasets: [{{ data: pairs.map(p => p[1]), backgroundColor: pairs.map((_, i) => paletteColor(i)) }}],
+      datasets: [{{
+        data: pairs.map(p => p[1]), backgroundColor: pairs.map((_, i) => paletteColor(i)),
+        borderColor: colors.surface, borderWidth: 2, hoverOffset: 6,
+      }}],
     }},
     options: {{
       responsive: true, maintainAspectRatio: false,
+      cutout: '62%',
       plugins: {{
-        legend: {{ position: 'bottom', labels: {{ color: colors.text }} }},
-        tooltip: {{ callbacks: {{ label: (c) => c.label + ': ' + moneyFull(c.parsed) }} }},
+        legend: {{ position: 'bottom', labels: {{ color: colors.text, usePointStyle: true, pointStyle: 'circle', boxWidth: 8, boxHeight: 8, padding: 14 }} }},
+        tooltip: {{ ...tooltipStyle(colors), callbacks: {{ label: (c) => c.label + ': ' + moneyFull(c.parsed) }} }},
       }},
     }},
   }};
@@ -673,6 +846,7 @@ function render() {{
   const rows = filteredCube();
   updateFilterCounts();
   renderKPIs(rows);
+  renderMlKPIs();
   renderBreakdownChart(rows);
   renderTrendChart(rows);
   renderProviderChart(rows);
