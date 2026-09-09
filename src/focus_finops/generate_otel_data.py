@@ -8,8 +8,8 @@ daily cost (already loaded in Postgres), which is the point of simulating
 it in the first place -- see reports/otel_insights.py for the correlation
 logic this feeds.
 
-For each qualifying resource (Compute / Databases / Storage -- the
-categories where "utilization" is a meaningful concept):
+For each qualifying resource (Compute / Databases / Storage / Networking --
+the categories where "utilization" is a meaningful concept):
 
   - A baseline utilization level and weekday/weekend pattern (reusing the
     same production-vs-non-production signal already in the FOCUS `Tags`
@@ -25,13 +25,17 @@ categories where "utilization" is a meaningful concept):
     "rightsizing candidate" cases (steady committed spend, low usage).
 
 Metrics generated per category:
-  - Compute:   system.cpu.utilization, system.memory.utilization
-  - Databases: system.cpu.utilization, system.memory.utilization,
-               db.client.connections.active
-  - Storage:   system.filesystem.utilization
+  - Compute:    system.cpu.utilization, system.memory.utilization
+  - Databases:  system.cpu.utilization, system.memory.utilization,
+                db.client.connections.active
+  - Storage:    system.filesystem.utilization
+  - Networking: network.io.utilization, network.client.errors
 
-Networking/Analytics/Other resources are skipped -- "utilization" isn't a
-meaningful concept for a CDN distribution or a data-transfer line item.
+Analytics/Other resources are skipped -- "utilization" isn't a meaningful
+concept for a BigQuery dataset or a tax/support line item. Networking
+line items with no resource_id (generic inter-region data transfer, in the
+sample data) are skipped too -- there's nothing to attach a resource-level
+metric to; only named resources (CDN distributions) qualify.
 """
 from __future__ import annotations
 
@@ -48,7 +52,7 @@ RNG_SEED = 20260908
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 SAMPLES_DIR = PROJECT_ROOT / "data" / "samples"
 
-UTILIZATION_CATEGORIES = ("Compute", "Databases", "Storage")
+UTILIZATION_CATEGORIES = ("Compute", "Databases", "Storage", "Networking")
 
 METRIC_SPECS = {
     "Compute": [
@@ -63,12 +67,17 @@ METRIC_SPECS = {
     "Storage": [
         ("system.filesystem.utilization", "%", (35.0, 85.0)),
     ],
+    "Networking": [
+        ("network.io.utilization", "%", (20.0, 75.0)),
+        ("network.client.errors", "count", (0.0, 15.0)),
+    ],
 }
 # The metric each category's spike/rightsizing injection logic keys off of.
 PRIMARY_METRIC = {
     "Compute": "system.cpu.utilization",
     "Databases": "system.cpu.utilization",
     "Storage": "system.filesystem.utilization",
+    "Networking": "network.io.utilization",
 }
 
 
@@ -89,7 +98,7 @@ def _resource_catalog() -> pd.DataFrame:
             MAX(COALESCE(sub_account_name, sub_account_id))         AS cloud_account_name,
             MAX(region_id)                                          AS region_id,
             MAX(tags->>'Environment')                               AS environment,
-            BOOL_OR(commitment_discount_id IS NOT NULL)              AS committed,
+            BOOL_OR(commitment_discount_id IS NOT NULL)::int         AS committed,
             MIN(charge_period_start)::date                          AS start_day,
             MAX(charge_period_start)::date                          AS end_day
         FROM {TABLE}

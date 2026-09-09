@@ -606,6 +606,13 @@ PAGE_TEMPLATE = """<!doctype html>
     </div>
 
     <div class="tab-panel" id="tabTelemetry" hidden>
+      <div class="filter-bar">
+        <div style="display:flex; align-items:center; gap:8px; font-size:12.5px;">
+          <label for="otelTypeSelect">Resource type</label>
+          <select id="otelTypeSelect" style="font-size:12.5px; padding:6px 8px; border-radius:6px; border:1px solid var(--border); background:var(--surface-2); color:var(--text-primary);"></select>
+        </div>
+      </div>
+
       <details class="accordion" open>
       <summary class="accordion-summary"><span>Cost vs. utilization signals at a glance</span><span class="accordion-chevron"></span></summary>
       <div class="accordion-body">
@@ -623,10 +630,10 @@ PAGE_TEMPLATE = """<!doctype html>
       <div class="accordion-body">
       <section class="chart-card">
         <h3>Resource detail</h3>
-        <p class="chart-subtitle">Simulated OpenTelemetry utilization metrics (system.cpu.utilization,
-          system.memory.utilization, system.filesystem.utilization) correlated against real FOCUS cost for the same
-          resource and day, based on the resources and date range already loaded from FOCUS data. Not affected by
-          the Cost Dashboard filters -- pick a resource directly below.</p>
+        <p class="chart-subtitle">Simulated OpenTelemetry utilization metrics -- CPU/memory for Compute and
+          Databases, filesystem for Storage, network I/O and client errors for Networking -- correlated against real
+          FOCUS cost for the same resource and day. Not affected by the Cost Dashboard filters -- use the Resource
+          type selector above and the resource picker below instead.</p>
         <div style="margin-bottom:10px;">
           <label for="otelResourceSelect" style="font-size:12.5px; color:var(--text-secondary); margin-right:8px;">Resource</label>
           <select id="otelResourceSelect" style="font-size:12.5px; padding:6px 8px; border-radius:6px; border:1px solid var(--border); background:var(--surface-2); color:var(--text-primary); max-width:100%;"></select>
@@ -1182,18 +1189,45 @@ function render() {{
 // --- Resource Telemetry tab -------------------------------------------
 let otelCostChart, otelUtilChart;
 let otelTabInitialized = false;
+let otelTypeFilter = 'all';
 
 const OTEL_METRIC_LABELS = {{
   'system.cpu.utilization': 'CPU utilization',
   'system.memory.utilization': 'Memory utilization',
   'system.filesystem.utilization': 'Filesystem utilization',
   'db.client.connections.active': 'Active connections',
+  'network.io.utilization': 'Network I/O utilization',
+  'network.client.errors': 'Client errors',
 }};
 
+// Preferred display order; any other category present falls back to the
+// order it's first seen in the data.
+const OTEL_TYPE_ORDER = ['Compute', 'Databases', 'Storage', 'Networking'];
+
+function otelTypesPresent() {{
+  const seen = new Set(OTEL_CORRELATION.map(r => r.service_category));
+  return OTEL_TYPE_ORDER.filter(t => seen.has(t)).concat([...seen].filter(t => !OTEL_TYPE_ORDER.includes(t)));
+}}
+
+function filteredOtelCorrelation() {{
+  return otelTypeFilter === 'all'
+    ? OTEL_CORRELATION
+    : OTEL_CORRELATION.filter(r => r.service_category === otelTypeFilter);
+}}
+
+function populateOtelTypeSelect() {{
+  const select = document.getElementById('otelTypeSelect');
+  const types = otelTypesPresent();
+  select.innerHTML = ['<option value="all">All types</option>']
+    .concat(types.map(t => `<option value="${{esc(t)}}">${{esc(t)}}</option>`))
+    .join('');
+}}
+
 function renderOtelKPIs() {{
-  document.getElementById('kpi-otel-resources').textContent = OTEL_CORRELATION.length.toLocaleString();
+  const rows = filteredOtelCorrelation();
+  document.getElementById('kpi-otel-resources').textContent = rows.length.toLocaleString();
   const counts = {{}};
-  OTEL_CORRELATION.forEach(r => {{ counts[r.classification] = (counts[r.classification] || 0) + 1; }});
+  rows.forEach(r => {{ counts[r.classification] = (counts[r.classification] || 0) + 1; }});
   document.getElementById('kpi-otel-healthy').textContent = (counts['Cost tracks usage (healthy)'] || 0).toLocaleString();
   document.getElementById('kpi-otel-rightsizing').textContent = (counts['Rightsizing candidate (low utilization, steady cost)'] || 0).toLocaleString();
   document.getElementById('kpi-otel-investigate').textContent = (counts['Investigate -- cost independent of utilization'] || 0).toLocaleString();
@@ -1201,10 +1235,11 @@ function renderOtelKPIs() {{
 
 function populateOtelResourceSelect() {{
   const select = document.getElementById('otelResourceSelect');
-  select.innerHTML = OTEL_CORRELATION.map(r =>
+  const rows = filteredOtelCorrelation();
+  select.innerHTML = rows.map(r =>
     `<option value="${{esc(r.resource_id)}}">${{esc(r.resource_name)}} (${{esc(r.provider)}} / ${{esc(r.account)}})</option>`
   ).join('');
-  if (OTEL_CORRELATION.length) select.value = OTEL_CORRELATION[0].resource_id;
+  if (rows.length) select.value = rows[0].resource_id;
 }}
 
 function renderOtelCharts(resourceId) {{
@@ -1265,11 +1300,16 @@ function renderOtelCharts(resourceId) {{
 
 function renderOtelCorrelationTable() {{
   const tbody = document.getElementById('otelCorrelationBody');
+  const rows = filteredOtelCorrelation();
   if (!OTEL_CORRELATION.length) {{
     tbody.innerHTML = '<tr><td colspan="7" class="empty">No OTel telemetry loaded -- run `generate-otel` then `ingest-otel` first.</td></tr>';
     return;
   }}
-  tbody.innerHTML = OTEL_CORRELATION.map(r => {{
+  if (!rows.length) {{
+    tbody.innerHTML = '<tr><td colspan="7" class="empty">No resources of this type.</td></tr>';
+    return;
+  }}
+  tbody.innerHTML = rows.map(r => {{
     let badgeClass = '';
     if (r.classification.indexOf('Investigate') === 0) badgeClass = 'critical';
     else if (r.classification.indexOf('Rightsizing') === 0) badgeClass = 'warning';
@@ -1281,16 +1321,28 @@ function renderOtelCorrelationTable() {{
   }}).join('');
 }}
 
-function initOtelTab() {{
-  if (otelTabInitialized) return;
-  otelTabInitialized = true;
+function refreshOtelView() {{
   renderOtelKPIs();
   populateOtelResourceSelect();
   renderOtelCorrelationTable();
-  if (OTEL_CORRELATION.length) renderOtelCharts(OTEL_CORRELATION[0].resource_id);
+  const rows = filteredOtelCorrelation();
+  if (rows.length) {{
+    renderOtelCharts(rows[0].resource_id);
+  }}
+}}
+
+function initOtelTab() {{
+  if (otelTabInitialized) return;
+  otelTabInitialized = true;
+  populateOtelTypeSelect();
+  refreshOtelView();
 
   document.getElementById('otelResourceSelect').addEventListener('change', (e) => {{
     renderOtelCharts(e.target.value);
+  }});
+  document.getElementById('otelTypeSelect').addEventListener('change', (e) => {{
+    otelTypeFilter = e.target.value;
+    refreshOtelView();
   }});
 }}
 

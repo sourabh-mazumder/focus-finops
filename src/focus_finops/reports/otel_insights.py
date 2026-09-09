@@ -20,6 +20,7 @@ PRIMARY_METRIC = {
     "Compute": "system.cpu.utilization",
     "Databases": "system.cpu.utilization",
     "Storage": "system.filesystem.utilization",
+    "Networking": "network.io.utilization",
 }
 
 
