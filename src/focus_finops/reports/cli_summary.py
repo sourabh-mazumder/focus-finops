@@ -4,7 +4,7 @@ from __future__ import annotations
 import pandas as pd
 from tabulate import tabulate
 
-from . import ml_insights, queries
+from . import cost_prediction, ml_insights, queries
 
 
 def _money(v) -> str:
@@ -150,3 +150,21 @@ def run() -> None:
             print(tabulate(show, headers="keys", tablefmt="simple", showindex=False))
             print("Recommended = steady, high-volume usage cluster (good Savings Plan/RI/CUD fit) --")
             print("a candidate list for FinOps review, not a purchase decision.")
+    print()
+
+    print("-- 3-month cost prediction (blended model, portfolio-wide) " + "-" * 1)
+    prediction = cost_prediction.predict_cost()
+    df = prediction["monthly"]
+    if df.empty:
+        print("(not enough history to forecast)")
+    else:
+        show = df.copy()
+        show["forecast"] = show["forecast"].map(_money)
+        show["lower"] = show["lower"].map(_money)
+        show["upper"] = show["upper"].map(_money)
+        show = show.rename(columns={"lower": "80% low", "upper": "80% high"})
+        print(tabulate(show, headers="keys", tablefmt="simple", showindex=False))
+        print("Blends: fixed-fee model for committed/reserved usage, linear regression for")
+        print("storage growth, and Prophet (trend + weekly seasonality) for compute/network/")
+        print("other -- summed as simulated sample paths so the interval reflects all three")
+        print("sources of uncertainty together. Portfolio-wide; not affected by filters.")

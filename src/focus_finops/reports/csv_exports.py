@@ -5,11 +5,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from . import ml_insights, queries
+from . import cost_prediction, ml_insights, queries
 
 
 def run(out_dir: Path) -> list[Path]:
     out_dir.mkdir(parents=True, exist_ok=True)
+    prediction = cost_prediction.predict_cost()
     exports = {
         "cost_by_service.csv": queries.cost_by_service(),
         "cost_by_account.csv": queries.cost_by_account(),
@@ -27,6 +28,8 @@ def run(out_dir: Path) -> list[Path]:
         "ml_cost_anomalies.csv": ml_insights.detect_cost_anomalies(),
         "ml_spend_forecast.csv": ml_insights.forecast_spend(),
         "ml_commitment_recommendations.csv": ml_insights.recommend_commitments(),
+        "cost_prediction_daily.csv": prediction["daily"],
+        "cost_prediction_monthly.csv": prediction["monthly"],
     }
     written = []
     for filename, df in exports.items():

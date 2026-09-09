@@ -31,10 +31,16 @@ from it.
 - `src/focus_finops/reports/` -- CLI summary, CSV exports, and the
   interactive HTML dashboard.
 - `src/focus_finops/reports/ml_insights.py` -- scikit-learn-based cost
-  optimization signals: per-resource anomaly detection (IsolationForest),
-  next-month spend forecasting / overrun risk (linear trend), and
-  commitment (Savings Plan/RI/CUD) candidate recommendations (KMeans). See
-  "Machine learning-based cost optimization" below.
+  optimization signals: a rolling z-score anomaly detector and, separately,
+  per-resource anomaly detection (IsolationForest), next-month spend
+  forecasting / overrun risk (linear trend), and commitment (Savings
+  Plan/RI/CUD) candidate recommendations (KMeans). See "Machine
+  learning-based cost optimization" below.
+- `src/focus_finops/reports/cost_prediction.py` -- a blended 3-month cost
+  prediction with an uncertainty interval: a fixed-fee model for
+  committed/reserved usage, linear regression for storage growth, and
+  Prophet (trend + weekly seasonality) for everything else, combined by
+  summing simulated sample paths. See "3-month cost prediction" below.
 - `src/focus_finops/cli.py` -- the `focus-finops` command-line tool tying
   it all together.
 
@@ -43,7 +49,7 @@ from it.
 - Python 3.11+
 - A PostgreSQL server, with the **`psql` client on your PATH**
 - Python packages: `pandas`, `click`, `python-dotenv`, `tabulate`, `numpy`,
-  `scikit-learn` (listed in `pyproject.toml`)
+  `scikit-learn`, `prophet` (listed in `pyproject.toml`)
 
 ### Why `psql` instead of psycopg2 / SQLAlchemy?
 
@@ -127,10 +133,16 @@ data, surfaced in the CLI summary, the CSV exports, and a dedicated
 dashboard section (all filterable by the same Provider/Account/Application/
 Owner filters as the rest of the page):
 
+- **Rolling z-score anomaly detection** -- a classical statistical
+  complement to the ML method below: per service, compares each day's cost
+  to the trailing 7-day mean/std of the days *before* it, flagging z >= 2.0
+  as a warning and z >= 3.0 as critical.
 - **Cost anomaly detection** (`IsolationForest`) -- fit independently per
   resource on its own daily cost history, so a $500/day database and a
   $2/day Lambda function are judged against their own baseline rather than
-  each other. Flags days that look like runaway spend spikes.
+  each other. Flags days that look like runaway spend spikes. The two
+  anomaly methods can and do disagree on specific days -- that's expected
+  and worth reviewing, not a bug.
 - **Spend forecasting / overrun risk** (`LinearRegression`) -- projects next
   month's cost per provider/account/application/owner/service-category
   combination from a straight-line fit over that combination's own monthly
@@ -149,6 +161,43 @@ actions -- see the caveats printed alongside each section (e.g. the
 forecast's short-history disclaimer, and that "commitment coverage"
 elsewhere in this project means usage billed at the committed rate, not
 used-vs-purchased utilization).
+
+## 3-month cost prediction
+
+`reports/cost_prediction.py` is a separate, blended forecasting model --
+distinct from `ml_insights.py`'s single-model `forecast_spend()` -- that
+projects total portfolio cost for the next 3 months with an uncertainty
+interval, surfaced as a fan chart (actual history, a projected median line,
+and a shaded interval band) in the CLI summary, CSV exports, and dashboard.
+
+It splits daily cost into three segments and forecasts each with the method
+that fits how it actually behaves, rather than fitting one model to
+everything:
+
+- **Fixed-fee model** for Reserved/committed usage (Savings Plans, Reserved
+  Instances, Committed Use Discounts) -- held flat at its historical
+  average, since committed capacity is a steady, largely usage-independent
+  charge by design.
+- **Linear regression** for Storage -- object/block storage cost tends to
+  grow roughly linearly as data accumulates.
+- **Prophet** (trend + weekly seasonality; no yearly seasonality -- a
+  handful of months of history can't support detecting one) for everything
+  else (Compute, Databases, Networking, Analytics, support/tax/credits) --
+  the most volatile, seasonal segment.
+
+The three components are combined by **summing simulated sample paths**
+(bootstrap draws for the first two, Prophet's own posterior predictive
+samples for the third) rather than by adding parametric intervals -- this
+avoids assuming Gaussian, symmetric, or constant-width uncertainty, and
+lets each component's own uncertainty shape combine correctly into one
+blended interval for the total.
+
+This forecast runs at the whole-portfolio level (summed across all
+providers/accounts) and is **not** filterable by Provider/Account/
+Application/Owner like the rest of the dashboard -- the dashboard section
+says so explicitly. A per-account breakdown (following the account-level
+pattern in `ml_insights.py`, where account determines provider/application/
+owner in this dataset) is a natural extension but isn't implemented here.
 
 ## Loading your own FOCUS export
 
