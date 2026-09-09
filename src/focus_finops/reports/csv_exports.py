@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from . import cost_prediction, ml_insights, queries
+from . import cost_prediction, ml_insights, otel_insights, queries
 
 
 def run(out_dir: Path) -> list[Path]:
@@ -30,6 +30,8 @@ def run(out_dir: Path) -> list[Path]:
         "ml_commitment_recommendations.csv": ml_insights.recommend_commitments(),
         "cost_prediction_daily.csv": prediction["daily"],
         "cost_prediction_monthly.csv": prediction["monthly"],
+        "otel_resource_daily.csv": otel_insights.resource_daily_series(),
+        "otel_cost_utilization_correlation.csv": otel_insights.cost_utilization_correlation(),
     }
     written = []
     for filename, df in exports.items():

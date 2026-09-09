@@ -4,7 +4,7 @@ from __future__ import annotations
 import pandas as pd
 from tabulate import tabulate
 
-from . import cost_prediction, ml_insights, queries
+from . import cost_prediction, ml_insights, otel_insights, queries
 
 
 def _money(v) -> str:
@@ -168,3 +168,16 @@ def run() -> None:
         print("storage growth, and Prophet (trend + weekly seasonality) for compute/network/")
         print("other -- summed as simulated sample paths so the interval reflects all three")
         print("sources of uncertainty together. Portfolio-wide; not affected by filters.")
+    print()
+
+    print("-- Telemetry: cost vs. utilization correlation (simulated OTel) " + "-" * 1)
+    df = otel_insights.cost_utilization_correlation()
+    if df.empty:
+        print("(no OTel telemetry loaded -- run `generate-otel` then `ingest-otel` first)")
+    else:
+        counts = df["classification"].value_counts()
+        show = df.head(10).drop(columns=["resource_id"]).copy()
+        print(tabulate(show, headers="keys", tablefmt="simple", showindex=False))
+        print(f"{len(df)} resources analyzed: " + ", ".join(f"{v} {k}" for k, v in counts.items()))
+        print("Simulated telemetry correlated against real FOCUS cost -- demonstrates the")
+        print("cost/utilization correlation method, not a finding about real infrastructure.")

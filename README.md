@@ -41,6 +41,11 @@ from it.
   committed/reserved usage, linear regression for storage growth, and
   Prophet (trend + weekly seasonality) for everything else, combined by
   summing simulated sample paths. See "3-month cost prediction" below.
+- `src/focus_finops/generate_otel_data.py`, `otel_schema.sql`,
+  `otel_ingest.py`, `src/focus_finops/reports/otel_insights.py` -- simulated
+  OpenTelemetry resource-utilization telemetry, correlated against real
+  FOCUS cost, in a separate table alongside `focus_cost_and_usage`. See
+  "Simulated telemetry & cost/utilization correlation" below.
 - `src/focus_finops/cli.py` -- the `focus-finops` command-line tool tying
   it all together.
 
@@ -198,6 +203,70 @@ Application/Owner like the rest of the dashboard -- the dashboard section
 says so explicitly. A per-account breakdown (following the account-level
 pattern in `ml_insights.py`, where account determines provider/application/
 owner in this dataset) is a natural extension but isn't implemented here.
+
+## Simulated telemetry & cost/utilization correlation
+
+FOCUS is a *billing* schema -- it has no notion of CPU/memory/disk
+utilization, only what was billed. `generate_otel_data.py` fills that gap
+with **simulated OpenTelemetry-style utilization metrics**, generated for
+the Compute/Databases/Storage resources already loaded from FOCUS data (not
+independently random -- see below), stored in their own table, and
+surfaced in a second dashboard tab so cost and utilization can be looked at
+side by side.
+
+**Generation** (`generate_otel_data.py`): for each Compute/Databases/Storage
+resource in `focus_cost_and_usage`, over that resource's own actual
+charge-period date range:
+- Metrics follow OTel semantic-convention names -- `system.cpu.utilization`,
+  `system.memory.utilization`, `system.filesystem.utilization`,
+  `db.client.connections.active` -- mapped onto that resource's real FOCUS
+  attributes (`cloud.provider`, `cloud.account.id`, ...).
+- Utilization is **not** independent noise: it reuses the same
+  weekday/weekend signal already on the resource's account (`Tags ->>
+  'Environment'`), and a simple z-score flags that resource's own cost
+  spikes so each spike day gets, on a coin flip, either a matching
+  utilization spike (a real, demand-driven increase) or no change at all (an
+  unexplained cost spike) -- both cases are deliberately produced so there's
+  something genuine to find. A subset of committed resources are pinned to a
+  low utilization band regardless of cost, to produce real rightsizing
+  candidates.
+- Written to `data/samples/otel_metrics_<start>_<end>.csv`, then loaded via
+  `ingest-otel` into a **new, separate table** (`otel_resource_metrics`,
+  `otel_schema.sql`) -- `focus_cost_and_usage`'s structure is never touched.
+
+**Analysis** (`reports/otel_insights.py`): joins daily utilization back to
+daily FOCUS cost on `(resource_id, day)` and computes, per resource, the
+Pearson correlation between its cost and its category's primary utilization
+metric, classifying it as:
+- **Cost tracks usage (healthy)** -- cost and utilization move together.
+- **Rightsizing candidate** -- persistently low utilization regardless of
+  cost (steady/committed spend on a mostly-idle resource).
+- **Investigate** -- cost varies independently of utilization (the pattern
+  a pricing error, orphaned resource, or untagged job would produce).
+- **Weak correlation / monitor** -- neither clearly healthy nor flaggable.
+
+**Dashboard**: a second top-level tab ("Resource Telemetry", alongside "Cost
+Dashboard") with a signals-at-a-glance row, a per-resource picker showing
+stacked daily-cost and daily-utilization charts, and the full
+correlation/classification table -- independent of the Cost Dashboard tab's
+Provider/Account/Application/Owner filters (it has its own resource
+picker instead).
+
+**Usage:**
+```bash
+focus-finops setup-otel-db     # create otel_resource_metrics (once)
+focus-finops generate-otel     # writes data/samples/otel_metrics_*.csv
+focus-finops ingest-otel data/samples/otel_metrics_<start>_<end>.csv
+```
+Then regenerate reports as usual (`report summary` / `report export` /
+`report dashboard`) -- all three degrade gracefully (empty section, not an
+error) if this hasn't been run yet.
+
+**This is simulated data demonstrating a correlation *method*** -- a
+legitimate, valuable FinOps technique in practice (what AWS Compute
+Optimizer or Azure Advisor do against real CloudWatch/Monitor data) -- not
+a finding about real infrastructure, since the "waste" and "unexplained
+spikes" here are exactly what the generator was told to inject.
 
 ## Loading your own FOCUS export
 

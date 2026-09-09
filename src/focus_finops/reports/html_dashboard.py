@@ -17,7 +17,7 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import cost_prediction, ml_insights, queries
+from . import cost_prediction, ml_insights, otel_insights, queries
 
 CHART_JS_CDN = "https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"
 
@@ -166,6 +166,27 @@ PAGE_TEMPLATE = """<!doctype html>
   .accordion-body > .chart-grid:last-child,
   .accordion-body > .chart-grid.full:last-child,
   .accordion-body > .stat-grid:last-child {{ margin-bottom: 0; }}
+
+  .tab-bar {{
+    display: flex;
+    gap: 4px;
+    margin-bottom: 14px;
+    border-bottom: 1px solid var(--gridline);
+  }}
+  .tab-btn {{
+    padding: 10px 18px;
+    font-size: 13px;
+    font-weight: 650;
+    color: var(--text-secondary);
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    cursor: pointer;
+    font-family: inherit;
+  }}
+  .tab-btn:hover {{ color: var(--text-primary); }}
+  .tab-btn.active {{ color: var(--accent); border-bottom-color: var(--accent); }}
+  .tab-panel[hidden] {{ display: none; }}
 
   .filter-bar {{
     display: flex;
@@ -327,6 +348,8 @@ PAGE_TEMPLATE = """<!doctype html>
   .badge {{ font-weight: 650; font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.02em; }}
   .badge.critical {{ color: var(--status-critical); }}
   .badge.warning {{ color: var(--status-warning); }}
+  .badge.good {{ color: var(--status-good); }}
+  #otelCorrelationBody .badge {{ text-transform: none; letter-spacing: normal; font-size: 12.5px; white-space: nowrap; }}
 
   footer.page-footer {{
     margin-top: 20px;
@@ -352,6 +375,12 @@ PAGE_TEMPLATE = """<!doctype html>
       <p>Multi-cloud cost &amp; usage (AWS + Azure + GCP), FOCUS v1.4 format · {period_start} to {period_end} · generated {generated_at}</p>
     </header>
 
+    <div class="tab-bar">
+      <button class="tab-btn active" data-tab="tabCost" type="button">Cost Dashboard</button>
+      <button class="tab-btn" data-tab="tabTelemetry" type="button">Resource Telemetry</button>
+    </div>
+
+    <div class="tab-panel" id="tabCost">
     <div class="filter-bar" id="filterBar">
       <details class="filter-group"><summary>Provider <span class="filter-count" id="count-provider"></span></summary>
         <div class="filter-options" id="options-provider"></div>
@@ -574,6 +603,61 @@ PAGE_TEMPLATE = """<!doctype html>
     </section>
     </div>
     </details>
+    </div>
+
+    <div class="tab-panel" id="tabTelemetry" hidden>
+      <details class="accordion" open>
+      <summary class="accordion-summary"><span>Cost vs. utilization signals at a glance</span><span class="accordion-chevron"></span></summary>
+      <div class="accordion-body">
+      <section class="stat-grid">
+        <div class="stat-tile"><div class="stat-label">Resources with telemetry</div><div class="stat-value" id="kpi-otel-resources">-</div></div>
+        <div class="stat-tile tone-good"><div class="stat-label">Cost tracks usage</div><div class="stat-value" id="kpi-otel-healthy">-</div></div>
+        <div class="stat-tile tone-warning"><div class="stat-label">Rightsizing candidates</div><div class="stat-value" id="kpi-otel-rightsizing">-</div></div>
+        <div class="stat-tile tone-critical"><div class="stat-label">Investigate</div><div class="stat-value" id="kpi-otel-investigate">-</div></div>
+      </section>
+      </div>
+      </details>
+
+      <details class="accordion" id="accordionOtelDetail" open>
+      <summary class="accordion-summary"><span>Cost vs. utilization by resource</span><span class="accordion-chevron"></span></summary>
+      <div class="accordion-body">
+      <section class="chart-card">
+        <h3>Resource detail</h3>
+        <p class="chart-subtitle">Simulated OpenTelemetry utilization metrics (system.cpu.utilization,
+          system.memory.utilization, system.filesystem.utilization) correlated against real FOCUS cost for the same
+          resource and day, based on the resources and date range already loaded from FOCUS data. Not affected by
+          the Cost Dashboard filters -- pick a resource directly below.</p>
+        <div style="margin-bottom:10px;">
+          <label for="otelResourceSelect" style="font-size:12.5px; color:var(--text-secondary); margin-right:8px;">Resource</label>
+          <select id="otelResourceSelect" style="font-size:12.5px; padding:6px 8px; border-radius:6px; border:1px solid var(--border); background:var(--surface-2); color:var(--text-primary); max-width:100%;"></select>
+        </div>
+        <h4 style="font-size:13px; font-weight:650; margin:0 0 4px;">Daily billed cost</h4>
+        <div class="chart-canvas-wrap short"><canvas id="otelCostChart"></canvas></div>
+        <h4 style="font-size:13px; font-weight:650; margin:14px 0 4px;">Daily utilization</h4>
+        <div class="chart-canvas-wrap short"><canvas id="otelUtilChart"></canvas></div>
+      </section>
+      </div>
+      </details>
+
+      <details class="accordion" open>
+      <summary class="accordion-summary"><span>Cost / utilization correlation by resource</span><span class="accordion-chevron"></span></summary>
+      <div class="accordion-body">
+      <section class="chart-card">
+        <h3>Classification</h3>
+        <p class="chart-subtitle">Pearson correlation between each resource's daily cost and its primary utilization
+          metric. Low/negative correlation with low utilization flags a rightsizing candidate; low/negative
+          correlation with normal utilization flags a cost pattern worth investigating independently of usage. This
+          demonstrates the correlation method against simulated telemetry -- not a finding about real infrastructure.</p>
+        <div style="overflow-x:auto">
+          <table class="data-table">
+            <thead><tr><th>Provider</th><th>Account</th><th>Resource</th><th>Category</th><th>Avg Utilization</th><th>Correlation</th><th>Classification</th></tr></thead>
+            <tbody id="otelCorrelationBody"></tbody>
+          </table>
+        </div>
+      </section>
+      </div>
+      </details>
+    </div>
 
     <footer class="page-footer">
       Generated by focus-finops from data currently loaded in the focus_cost_and_usage table.
@@ -590,6 +674,8 @@ const ML_FORECAST = {ml_forecast_json};
 const ML_RECOMMENDATIONS = {ml_recommendations_json};
 const PREDICTION_DAILY = {prediction_daily_json};
 const PREDICTION_MONTHLY = {prediction_monthly_json};
+const OTEL_DAILY = {otel_daily_json};
+const OTEL_CORRELATION = {otel_correlation_json};
 
 // Validated categorical palette (CVD-safe in fixed order; see the dataviz
 // skill's palette reference) -- light/dark variants of the same 8 hues.
@@ -1093,6 +1179,131 @@ function render() {{
   renderRecommendTable();
 }}
 
+// --- Resource Telemetry tab -------------------------------------------
+let otelCostChart, otelUtilChart;
+let otelTabInitialized = false;
+
+const OTEL_METRIC_LABELS = {{
+  'system.cpu.utilization': 'CPU utilization',
+  'system.memory.utilization': 'Memory utilization',
+  'system.filesystem.utilization': 'Filesystem utilization',
+  'db.client.connections.active': 'Active connections',
+}};
+
+function renderOtelKPIs() {{
+  document.getElementById('kpi-otel-resources').textContent = OTEL_CORRELATION.length.toLocaleString();
+  const counts = {{}};
+  OTEL_CORRELATION.forEach(r => {{ counts[r.classification] = (counts[r.classification] || 0) + 1; }});
+  document.getElementById('kpi-otel-healthy').textContent = (counts['Cost tracks usage (healthy)'] || 0).toLocaleString();
+  document.getElementById('kpi-otel-rightsizing').textContent = (counts['Rightsizing candidate (low utilization, steady cost)'] || 0).toLocaleString();
+  document.getElementById('kpi-otel-investigate').textContent = (counts['Investigate -- cost independent of utilization'] || 0).toLocaleString();
+}}
+
+function populateOtelResourceSelect() {{
+  const select = document.getElementById('otelResourceSelect');
+  select.innerHTML = OTEL_CORRELATION.map(r =>
+    `<option value="${{esc(r.resource_id)}}">${{esc(r.resource_name)}} (${{esc(r.provider)}} / ${{esc(r.account)}})</option>`
+  ).join('');
+  if (OTEL_CORRELATION.length) select.value = OTEL_CORRELATION[0].resource_id;
+}}
+
+function renderOtelCharts(resourceId) {{
+  const rows = OTEL_DAILY.filter(r => r.resource_id === resourceId).sort((a, b) => a.day < b.day ? -1 : 1);
+  const colors = axisColors();
+  const labels = rows.map(r => r.day);
+
+  const costCfg = {{
+    type: 'bar',
+    data: {{
+      labels,
+      datasets: [{{
+        label: 'Billed Cost', data: rows.map(r => r.cost),
+        backgroundColor: paletteColor(0), borderRadius: 3, maxBarThickness: 10,
+      }}],
+    }},
+    options: {{
+      responsive: true, maintainAspectRatio: false,
+      plugins: {{ legend: {{ display: false }}, tooltip: {{ ...tooltipStyle(colors), callbacks: {{ label: (c) => moneyFull(c.parsed.y) }} }} }},
+      scales: {{
+        x: {{ ticks: {{ color: colors.text, maxTicksLimit: 8 }}, grid: {{ display: false }}, border: {{ color: colors.grid }} }},
+        y: {{ ticks: {{ color: colors.text, callback: (v) => money(v) }}, grid: {{ color: colors.grid }}, border: {{ color: colors.grid }} }},
+      }},
+    }},
+  }};
+  if (otelCostChart) {{ otelCostChart.data = costCfg.data; otelCostChart.options = costCfg.options; otelCostChart.update(); }}
+  else {{ otelCostChart = new Chart(document.getElementById('otelCostChart'), costCfg); }}
+
+  const metricKeys = Object.keys(OTEL_METRIC_LABELS).filter(m => rows.some(r => r[m] !== null && r[m] !== undefined));
+  const utilDatasets = metricKeys.map((m, i) => {{
+    const c = paletteColor(i + 1);
+    return {{
+      label: OTEL_METRIC_LABELS[m], data: rows.map(r => r[m]),
+      borderColor: c, backgroundColor: c, borderWidth: 2, tension: 0.2,
+      pointRadius: 3, pointBackgroundColor: c, pointBorderColor: colors.surface, pointBorderWidth: 1,
+      spanGaps: true,
+    }};
+  }});
+  const utilCfg = {{
+    type: 'line',
+    data: {{ labels, datasets: utilDatasets }},
+    options: {{
+      responsive: true, maintainAspectRatio: false,
+      interaction: {{ mode: 'index', intersect: false }},
+      plugins: {{
+        legend: {{ labels: {{ color: colors.text, usePointStyle: true, pointStyle: 'circle', boxWidth: 8, boxHeight: 8 }} }},
+        tooltip: {{ ...tooltipStyle(colors), callbacks: {{ label: (c) => c.dataset.label + ': ' + c.parsed.y.toFixed(1) }} }},
+      }},
+      scales: {{
+        x: {{ ticks: {{ color: colors.text, maxTicksLimit: 8 }}, grid: {{ display: false }}, border: {{ color: colors.grid }} }},
+        y: {{ ticks: {{ color: colors.text }}, grid: {{ color: colors.grid }}, border: {{ color: colors.grid }} }},
+      }},
+    }},
+  }};
+  if (otelUtilChart) {{ otelUtilChart.data = utilCfg.data; otelUtilChart.options = utilCfg.options; otelUtilChart.update(); }}
+  else {{ otelUtilChart = new Chart(document.getElementById('otelUtilChart'), utilCfg); }}
+}}
+
+function renderOtelCorrelationTable() {{
+  const tbody = document.getElementById('otelCorrelationBody');
+  if (!OTEL_CORRELATION.length) {{
+    tbody.innerHTML = '<tr><td colspan="7" class="empty">No OTel telemetry loaded -- run `generate-otel` then `ingest-otel` first.</td></tr>';
+    return;
+  }}
+  tbody.innerHTML = OTEL_CORRELATION.map(r => {{
+    let badgeClass = '';
+    if (r.classification.indexOf('Investigate') === 0) badgeClass = 'critical';
+    else if (r.classification.indexOf('Rightsizing') === 0) badgeClass = 'warning';
+    else if (r.classification.indexOf('healthy') !== -1) badgeClass = 'good';
+    const label = badgeClass ? `<span class="badge ${{badgeClass}}">${{esc(r.classification)}}</span>` : esc(r.classification);
+    return '<tr><td>' + esc(r.provider) + '</td><td>' + esc(r.account) + '</td><td>' + esc(r.resource_name) +
+           '</td><td>' + esc(r.service_category) + '</td><td>' + r.avg_utilization.toFixed(1) + '%</td><td>' +
+           r.correlation.toFixed(2) + '</td><td>' + label + '</td></tr>';
+  }}).join('');
+}}
+
+function initOtelTab() {{
+  if (otelTabInitialized) return;
+  otelTabInitialized = true;
+  renderOtelKPIs();
+  populateOtelResourceSelect();
+  renderOtelCorrelationTable();
+  if (OTEL_CORRELATION.length) renderOtelCharts(OTEL_CORRELATION[0].resource_id);
+
+  document.getElementById('otelResourceSelect').addEventListener('change', (e) => {{
+    renderOtelCharts(e.target.value);
+  }});
+}}
+
+document.querySelectorAll('.tab-btn').forEach(btn => {{
+  btn.addEventListener('click', () => {{
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-panel').forEach(p => p.hidden = true);
+    btn.classList.add('active');
+    document.getElementById(btn.dataset.tab).hidden = false;
+    if (btn.dataset.tab === 'tabTelemetry') initOtelTab();
+  }});
+}});
+
 document.getElementById('groupBySelect').addEventListener('change', (e) => {{
   state.groupBy = e.target.value;
   render();
@@ -1110,6 +1321,9 @@ document.getElementById('accordionBreakdown').addEventListener('toggle', functio
 }});
 document.getElementById('accordionPrediction').addEventListener('toggle', function () {{
   if (this.open && predictionChart) predictionChart.resize();
+}});
+document.getElementById('accordionOtelDetail').addEventListener('toggle', function () {{
+  if (this.open) {{ [otelCostChart, otelUtilChart].forEach(c => c && c.resize()); }}
 }});
 
 renderFilterOptions();
@@ -1158,6 +1372,10 @@ def run(out_path: Path) -> Path:
     prediction_daily_json = prediction["daily"].to_json(orient="records").replace("</", "<\\/")
     prediction_monthly_json = prediction["monthly"].to_json(orient="records").replace("</", "<\\/")
 
+    otel_daily_df = otel_insights.resource_daily_series().round(2)
+    otel_daily_json = otel_daily_df.to_json(orient="records").replace("</", "<\\/")
+    otel_correlation_json = otel_insights.cost_utilization_correlation().to_json(orient="records").replace("</", "<\\/")
+
     html = PAGE_TEMPLATE.format(
         chart_js_cdn=CHART_JS_CDN,
         generated_at=datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
@@ -1171,6 +1389,8 @@ def run(out_path: Path) -> Path:
         ml_recommendations_json=recommendations_json,
         prediction_daily_json=prediction_daily_json,
         prediction_monthly_json=prediction_monthly_json,
+        otel_daily_json=otel_daily_json,
+        otel_correlation_json=otel_correlation_json,
     )
     out_path.write_text(html, encoding="utf-8")
     return out_path

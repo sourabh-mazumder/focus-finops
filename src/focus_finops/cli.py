@@ -6,11 +6,14 @@ from pathlib import Path
 import click
 
 from . import db
+from .generate_otel_data import write_otel_csv
 from .generate_sample_data import write_sample_csv
 from .ingest import ingest_csv
+from .otel_ingest import ingest_otel_csv
 from .reports import cli_summary, csv_exports, html_dashboard
 
 SCHEMA_PATH = Path(__file__).resolve().parent / "schema.sql"
+OTEL_SCHEMA_PATH = Path(__file__).resolve().parent / "otel_schema.sql"
 
 
 @click.group()
@@ -44,6 +47,30 @@ def ingest_cmd(csv_file: str):
             "Note: ignored columns not in the FOCUS v1.4 mapping: "
             + ", ".join(result.unknown_columns)
         )
+
+
+@main.command("setup-otel-db")
+def setup_otel_db_cmd():
+    """Create the otel_resource_metrics table (idempotent); leaves
+    focus_cost_and_usage untouched."""
+    db.run_sql_file(OTEL_SCHEMA_PATH)
+    click.echo("OTel schema applied.")
+
+
+@main.command("generate-otel")
+def generate_otel_cmd():
+    """Generate simulated OpenTelemetry utilization metrics for the
+    Compute/Databases/Storage resources already loaded from FOCUS data."""
+    path = write_otel_csv()
+    click.echo(f"Wrote OTel sample data: {path}")
+
+
+@main.command("ingest-otel")
+@click.argument("csv_file", type=click.Path(exists=True))
+def ingest_otel_cmd(csv_file: str):
+    """Load a simulated OTel metrics CSV into the database."""
+    result = ingest_otel_csv(csv_file)
+    click.echo(f"Loaded {result.rows_loaded} rows from {result.source_file}.")
 
 
 @main.group("report")
