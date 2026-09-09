@@ -78,7 +78,7 @@ PAGE_TEMPLATE = """<!doctype html>
     font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
     background: var(--page-plane);
     color: var(--text-primary);
-    padding: 32px 24px 64px;
+    padding: 14px 24px 32px;
     -webkit-font-smoothing: antialiased;
   }}
   .page {{ max-width: 1180px; margin: 0 auto; }}
@@ -86,8 +86,8 @@ PAGE_TEMPLATE = """<!doctype html>
     position: relative;
     overflow: hidden;
     text-align: center;
-    padding: 22px 24px 22px;
-    margin-bottom: 20px;
+    padding: 14px 24px;
+    margin-bottom: 14px;
     background: var(--header-tint);
     border: 1px solid var(--border);
     border-radius: 12px;
@@ -102,30 +102,16 @@ PAGE_TEMPLATE = """<!doctype html>
     display: block;
     font-size: 10.5px; font-weight: 700; letter-spacing: 0.12em;
     text-transform: uppercase; color: var(--text-muted);
-    margin: 4px 0 10px;
+    margin: 2px 0 6px;
   }}
-  header.study-header h1 {{ font-size: 18px; font-weight: 600; line-height: 1.45; margin: 0 0 8px; }}
+  header.study-header h1 {{ font-size: 18px; font-weight: 600; line-height: 1.45; margin: 0 0 6px; }}
   header.study-header p {{ margin: 0; color: var(--text-secondary); font-size: 12.5px; }}
-  header.page-header {{ margin-bottom: 20px; }}
+  header.page-header {{ margin-bottom: 14px; }}
   header.page-header h1 {{ font-size: 22px; font-weight: 700; letter-spacing: -0.01em; margin: 0 0 4px; }}
   header.page-header p {{ margin: 0; color: var(--text-secondary); font-size: 13px; }}
 
-  .section-divider {{
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    margin: 30px 0 14px;
-    font-size: 11px;
-    font-weight: 700;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--text-muted);
-  }}
-  .section-divider:first-of-type {{ margin-top: 0; }}
-  .section-divider::after {{ content: ''; flex: 1; height: 1px; background: var(--gridline); }}
-
   details.accordion {{
-    margin: 22px 0 0;
+    margin: 14px 0 0;
     border: 1px solid var(--border);
     border-radius: 12px;
     background: var(--surface-2);
@@ -139,7 +125,7 @@ PAGE_TEMPLATE = """<!doctype html>
     gap: 12px;
     cursor: pointer;
     list-style: none;
-    padding: 15px 20px;
+    padding: 11px 18px;
     background: var(--header-tint);
     border-left: 3px solid var(--accent);
     border-bottom: 1px solid var(--border);
@@ -175,10 +161,11 @@ PAGE_TEMPLATE = """<!doctype html>
   }}
   details.accordion[open] > summary.accordion-summary .accordion-chevron {{ transform: rotate(180deg); }}
   summary.accordion-summary:hover .accordion-chevron {{ background: var(--surface-1); color: var(--accent); }}
-  .accordion-body {{ padding: 16px 16px 18px; }}
+  .accordion-body {{ padding: 12px 14px 14px; }}
   .accordion-body > .chart-card:last-child,
   .accordion-body > .chart-grid:last-child,
-  .accordion-body > .chart-grid.full:last-child {{ margin-bottom: 0; }}
+  .accordion-body > .chart-grid.full:last-child,
+  .accordion-body > .stat-grid:last-child {{ margin-bottom: 0; }}
 
   .filter-bar {{
     display: flex;
@@ -188,8 +175,8 @@ PAGE_TEMPLATE = """<!doctype html>
     background: var(--surface-1);
     border: 1px solid var(--border);
     border-radius: 10px;
-    padding: 12px 14px;
-    margin-bottom: 20px;
+    padding: 10px 14px;
+    margin-bottom: 14px;
     box-shadow: var(--shadow-card);
   }}
   .filter-group {{ position: relative; }}
@@ -272,7 +259,7 @@ PAGE_TEMPLATE = """<!doctype html>
     border: 1px solid var(--border);
     border-top: 3px solid var(--gridline);
     border-radius: 10px;
-    padding: 16px 18px;
+    padding: 13px 16px;
     box-shadow: var(--shadow-card);
     transition: transform 120ms ease, box-shadow 120ms ease;
   }}
@@ -289,8 +276,8 @@ PAGE_TEMPLATE = """<!doctype html>
   .chart-grid {{
     display: grid;
     grid-template-columns: 2fr 1fr;
-    gap: 16px;
-    margin-bottom: 16px;
+    gap: 12px;
+    margin-bottom: 12px;
     align-items: stretch;
   }}
   .chart-grid.full {{ grid-template-columns: 1fr; }}
@@ -301,15 +288,15 @@ PAGE_TEMPLATE = """<!doctype html>
     background: var(--surface-1);
     border: 1px solid var(--border);
     border-radius: 10px;
-    padding: 16px 18px 14px;
+    padding: 14px 16px 12px;
     min-width: 0;
     box-shadow: var(--shadow-card);
-    margin-bottom: 16px;
+    margin-bottom: 12px;
   }}
   .chart-card h3 {{ font-size: 14px; font-weight: 650; margin: 0 0 2px; }}
-  .chart-subtitle {{ font-size: 12px; color: var(--text-secondary); margin: 0 0 10px; line-height: 1.5; }}
-  .ml-subsection {{ margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--gridline); }}
-  .ml-subsection:first-of-type {{ margin-top: 14px; padding-top: 0; border-top: none; }}
+  .chart-subtitle {{ font-size: 12px; color: var(--text-secondary); margin: 0 0 8px; line-height: 1.5; }}
+  .ml-subsection {{ margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--gridline); }}
+  .ml-subsection:first-of-type {{ margin-top: 10px; padding-top: 0; border-top: none; }}
   .ml-subsection h4 {{ font-size: 13px; font-weight: 650; margin: 0 0 4px; }}
   .ml-subsection .chart-subtitle {{ margin: 0 0 8px; }}
   .empty {{ color: var(--text-muted); font-size: 13px; padding: 20px 0; }}
@@ -324,7 +311,7 @@ PAGE_TEMPLATE = """<!doctype html>
   }}
   table.data-table th, table.data-table td {{
     text-align: left;
-    padding: 9px 10px;
+    padding: 7px 10px;
     border-bottom: 1px solid var(--gridline);
   }}
   table.data-table th {{
@@ -342,8 +329,8 @@ PAGE_TEMPLATE = """<!doctype html>
   .badge.warning {{ color: var(--status-warning); }}
 
   footer.page-footer {{
-    margin-top: 32px;
-    padding-top: 16px;
+    margin-top: 20px;
+    padding-top: 12px;
     border-top: 1px solid var(--gridline);
     font-size: 11px;
     color: var(--text-muted);
@@ -393,7 +380,9 @@ PAGE_TEMPLATE = """<!doctype html>
       </div>
     </div>
 
-    <div class="section-divider"><span>Cost overview</span></div>
+    <details class="accordion" open>
+    <summary class="accordion-summary"><span>Cost overview</span><span class="accordion-chevron"></span></summary>
+    <div class="accordion-body">
     <section class="stat-grid">
       <div class="stat-tile tone-accent"><div class="stat-label">Total Billed Cost</div><div class="stat-value" id="kpi-billed">-</div></div>
       <div class="stat-tile"><div class="stat-label">Total Effective Cost</div><div class="stat-value" id="kpi-effective">-</div></div>
@@ -403,8 +392,12 @@ PAGE_TEMPLATE = """<!doctype html>
       <div class="stat-tile"><div class="stat-label">Applications</div><div class="stat-value" id="kpi-applications">-</div></div>
       <div class="stat-tile"><div class="stat-label">Line items</div><div class="stat-value" id="kpi-lineitems">-</div></div>
     </section>
+    </div>
+    </details>
 
-    <div class="section-divider"><span>Cost anomaly &amp; risk signals at a glance</span></div>
+    <details class="accordion" open>
+    <summary class="accordion-summary"><span>Cost anomaly &amp; risk signals at a glance</span><span class="accordion-chevron"></span></summary>
+    <div class="accordion-body">
     <section class="stat-grid">
       <div class="stat-tile" id="tile-zscore">
         <div class="stat-label">Z-score anomalies (7-day rolling)</div>
@@ -427,6 +420,8 @@ PAGE_TEMPLATE = """<!doctype html>
         <div class="stat-sub" id="kpi-candidates-sub"></div>
       </div>
     </section>
+    </div>
+    </details>
 
     <details class="accordion" id="accordionBreakdown" open>
     <summary class="accordion-summary"><span>Cost breakdown &amp; trends</span><span class="accordion-chevron"></span></summary>
