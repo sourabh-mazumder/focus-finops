@@ -60,7 +60,7 @@ def setup_otel_db_cmd():
 @main.command("generate-otel")
 def generate_otel_cmd():
     """Generate simulated OpenTelemetry utilization metrics for the
-    Compute/Databases/Storage resources already loaded from FOCUS data."""
+    Compute/Databases/Storage/Networking resources already loaded from FOCUS data."""
     path = write_otel_csv()
     click.echo(f"Wrote OTel sample data: {path}")
 

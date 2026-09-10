@@ -110,9 +110,10 @@ def _resource_catalog() -> pd.DataFrame:
 
 
 def _daily_cost_all() -> pd.DataFrame:
-    """Daily cost per resource, for every Compute/Databases/Storage
-    resource at once (a single query, grouped in pandas afterward -- avoids
-    building a per-resource WHERE clause from a Python string).
+    """Daily cost per resource, for every Compute/Databases/Storage/
+    Networking resource at once (a single query, grouped in pandas
+    afterward -- avoids building a per-resource WHERE clause from a Python
+    string).
     """
     categories = ", ".join(f"'{c}'" for c in UTILIZATION_CATEGORIES)
     return db.query_df(f"""
@@ -225,7 +226,7 @@ def write_otel_csv(out_path: Path | None = None) -> Path:
     rows = generate_otel_rows()
     if not rows:
         raise RuntimeError(
-            "No Compute/Databases/Storage resources found in focus_cost_and_usage -- "
+            "No Compute/Databases/Storage/Networking resources found in focus_cost_and_usage -- "
             "run `focus-finops ingest` first."
         )
     df = pd.DataFrame(rows)

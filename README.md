@@ -226,18 +226,20 @@ owner in this dataset) is a natural extension but isn't implemented here.
 FOCUS is a *billing* schema -- it has no notion of CPU/memory/disk
 utilization, only what was billed. `generate_otel_data.py` fills that gap
 with **simulated OpenTelemetry-style utilization metrics**, generated for
-the Compute/Databases/Storage resources already loaded from FOCUS data (not
-independently random -- see below), stored in their own table, and
-surfaced in a second dashboard tab so cost and utilization can be looked at
-side by side.
+the Compute/Databases/Storage/Networking resources already loaded from
+FOCUS data (not independently random -- see below), stored in their own
+table, and surfaced in a second dashboard tab so cost and utilization can
+be looked at side by side.
 
-**Generation** (`generate_otel_data.py`): for each Compute/Databases/Storage
-resource in `focus_cost_and_usage`, over that resource's own actual
-charge-period date range:
-- Metrics follow OTel semantic-convention names -- `system.cpu.utilization`,
-  `system.memory.utilization`, `system.filesystem.utilization`,
-  `db.client.connections.active` -- mapped onto that resource's real FOCUS
-  attributes (`cloud.provider`, `cloud.account.id`, ...).
+**Generation** (`generate_otel_data.py`): for each Compute/Databases/
+Storage/Networking resource in `focus_cost_and_usage`, over that resource's
+own actual charge-period date range:
+- Metrics follow OTel semantic-convention names, mapped onto that
+  resource's real FOCUS attributes (`cloud.provider`, `cloud.account.id`,
+  ...) -- `system.cpu.utilization` + `system.memory.utilization` for
+  Compute, the same two plus `db.client.connections.active` for Databases,
+  `system.filesystem.utilization` for Storage, and `network.io.utilization`
+  + `network.client.errors` for Networking.
 - Utilization is **not** independent noise: it reuses the same
   weekday/weekend signal already on the resource's account (`Tags ->>
   'Environment'`), and a simple z-score flags that resource's own cost
